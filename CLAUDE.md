@@ -49,8 +49,48 @@ Both are **read-only**; only the main thread writes files, so there is never a c
 - **Resources can't be set via MCP.** ReflectorNet can't instantiate/assign resources (meshes, shapes, materials) inline via `node-modify`. Anything needing a resource (a control's `BoxShape3D` collision, a mesh, a material) must be authored in **`.tscn` text on disk**. Use CSG primitives for placeholder geometry (no resource). UI nodes (Label/Button/ColorRect) need no resources → fine to build live via MCP `node-create`/`node-modify`.
 - **MCP reflection sees only C#, not GDScript.** `node-modify` and `reflection-method-call` can read/set **C# properties/methods** but are BLIND to GDScript script vars and methods. So a scene whose root has GDScript `@export` vars (e.g. `cockpit.tscn` manager NodePaths) MUST be wired in `.tscn` text, not via MCP.
 - **Scripts hot-reload; scenes do NOT.** Editing a `.gd`/`.cs` file → `filesystem-reimport {files:[...]}` → the editor hot-reloads it live (no restart). Editing a `.tscn` **on disk while it's open** does NOT reload — the editor holds a cached copy. To pick up disk `.tscn` changes you must force a reload: `EditorInterface.ReloadSceneFromPath` (preferred, instant) or a full editor restart (slow).
-- **C# rebuilds disconnect the cloud link.** Any `dotnet build` that changes the assembly makes the editor reload it and drop its cloud MCP connection. A clean `godot-cli close --force` + `open` + **~70s wait** auto-reconnects (no user action). So: FRONT-LOAD all C#, build rarely; do day-to-day work in GDScript/scenes/data which never disconnect.
+- **C# rebuilds disconnect the cloud link.** Any `dotnet build` that changes the assembly makes the editor reload it and drop its cloud MCP connection. To restart WITHOUT forcing the user to re-authorize: use a **clean** `godot-cli close .` (polite quit — releases the cloud session) then `open` + **~75s wait** → auto-reconnects, no re-auth. **NEVER `--force` / `taskkill`** — a hard kill leaves the session dirty and forces the user to click "authorize" again. **NEVER run two editor instances** (a launch race → session churn). So: FRONT-LOAD all C#, build rarely, announce the restart; do day-to-day work in GDScript/scenes/data which never disconnect.
 - **Testing:** the running game's `print()` is unreadable via MCP, and `runtime-errors-get` needs C# runtime-capture init. Test pure logic by putting it in C# and calling it via `reflection-method-call` (e.g. `CockpitBrain.SelfTest()` static). GDScript runtime behavior (clicks, round flow) = user play-test. Verify structure via `scene-get-data`, compile via `script-validate`, visuals via `screenshot-viewport` (editor viewport renders CSG; `screenshot-camera` does NOT render CSG).
+
+---
+
+## Project State & Technical Decisions (current)
+
+### Architecture: C# brain (logic) + GDScript (presentation) + data (content)
+Decided for testability: MCP/reflection can drive and inspect **C#** but is blind to GDScript, so the win/lose logic lives in C# where the test harness reaches it; iteration-fast presentation stays GDScript.
+- **`scripts/core/CockpitBrain.cs`** — the authoritative brain (`[GlobalClass]` C# `Node`). Owns control states, required config, the FACTS (edgework), the MANUAL (decision-list engine), validation. Has a **static `SelfTest()`** the harness runs via `reflection-method-call` (returns `"SELFTEST PASS/FAIL :: …"`). Keep this the single source of truth. **A C# change forces a restart** — batch them, keep logic here complete so rebuilds stay rare.
+- **`scripts/cockpit_manager.gd`** — round orchestration: registers controls into the brain, loads the manual, rolls the flight, updates UI, LAND/timer, snapshots the result → recap.
+- **`scripts/cockpit_control.gd`** — control VIEW: click emits `cycle_requested`; `apply_state(state)` tilts a handle. Owns no canonical state (routes through brain — the future networking/authority seam).
+- **`scripts/game.gd`** — autoload singleton `Game`: scene transitions + carries `last_result` between cockpit and recap.
+- **`data/manual.gd`** — **THE MANUAL AS DATA** (`CockpitManual.data()`). Edit this to change the puzzle; hot-reloads (F6, no restart).
+- **Scenes:** `scenes/main_menu.tscn` (main scene) → `scenes/cockpit.tscn` → `scenes/round_recap.tscn` (+ `settings.tscn` stub).
+
+### The puzzle engine (KTANE decision lists)
+Everything generates from ONE seed (`CockpitBrain.GenerateFlight(seed)` — same seed = same flight, reproducible for tests/sharing):
+- **Facts (edgework)** the pilot reads aloud: `WARN` light {GREEN,AMBER,RED}, `starting_airport`/`arriving_airport` (code pool), `flight_number` (number gen). A fact declares either `values:[…]` (pick one) or `gen:"number"` + `min`/`max`.
+- **Modules = ordered decision lists** (if / else-if / else). The brain walks each list top-down; the FIRST branch whose conditions all pass sets that control's required state; a final `{else:…}` is the default.
+- **Conditions are objects** `{fact, op, value?}`. Ops: `eq neq starts ends contains firstVowel lastVowel firstConsonant lastConsonant even odd`. **Y is a vowel.** Multiple conditions in one `when` = AND.
+- The required config is **DERIVED, never stored or shown** — only looked up. `ManualText()` renders each module as a numbered if/else list (the tower binder).
+- Authoring flow: edit `data/manual.gd` (named constants → typo-safe) → manager `JSON.stringify`s it → `brain.LoadManualJson()` which **validates** (unknown fact/control/op/label = clear error) then derives.
+
+### Key decisions this session
+- **Solo-first prototype**, on-screen manual. Networking (2-player split pilot/tower screens) deferred until the loop is proven fun.
+- **Central store = the brain's facts, read by name.** No scattered global getters. Rules (data) reference facts by name; only display nodes read a fact through the brain. Reads are safe; scattered mutable global state is the thing to avoid.
+- **Raw CSG placeholders** for all geometry; art last (the art direction — chunky low-poly, readability-first — means the placeholder→final gap is small).
+- **Restart discipline** (see MCP rules above): clean quit only, never force-kill, never two instances.
+
+### Milestones done
+A′ data-layer + C# brain · B round loop (scenario→manual→timer→LAND→result) · C information-asymmetry puzzle · scene flow (menu/settings/recap) · **decision-list manual engine (data-driven)**.
+
+### Next (roadmap)
+1. **Modular prefab cockpit + spawner + layout data** — the "changing dashboard": each control type is its own prefab scene; the cockpit holds empty slot markers; a spawner reads layout data (seeded) and instantiates. Turns the fixed cockpit into a procedural one. **This is the next big build.**
+2. Failure events (stuck / inverted / lying-indicator controls) — implement in the input→state pipeline (can be GDScript, no C# rebuild).
+3. 2-player networking (host-client P2P) + split screens + lobby — only after the loop is proven.
+4. Auto-generated manuals from modules; more modules/facts (all data now).
+- Keep an **`IDEAS.md`** backlog, tagged core/content/polish; implement core-affecting ideas early, park content/polish for the content phase.
+
+### Cleanup
+Leftover test assets to delete when convenient: `res://test_sphere.tscn`, `res://sphere_mesh.tres`.
 
 ---
 

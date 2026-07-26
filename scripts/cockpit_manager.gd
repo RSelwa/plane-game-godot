@@ -19,7 +19,7 @@ class_name CockpitManager
 
 const _REQUIRED_METHODS := [
 	"RegisterControl", "RequestCycle", "GetState", "IsValid", "StateLabel", "NumStates",
-	"LoadManualJson", "GenerateScenario", "ManualText", "CueIds", "CueValue",
+	"LoadManualJson", "GenerateFlight", "ManualText", "FactIds", "FactValue",
 	"HasRequired", "RequiredState",
 ]
 const _WARN_COLORS := {
@@ -69,11 +69,13 @@ func _load_manual() -> void:
 
 func _start_round() -> void:
 	var round_seed := int(randi() % 2147483647)
-	_brain.GenerateScenario(round_seed)
+	_brain.GenerateFlight(round_seed)
 	_time_left = round_seconds
 	_playing = true
 	_apply_warn_light()
-	print("[round] seed=%d cues WARN=%s CODE=%s" % [round_seed, _brain.CueValue("WARN"), _brain.CueValue("CODE")])
+	print("[round] seed=%d WARN=%s from=%s to=%s flight=%s" % [round_seed,
+		_brain.FactValue("WARN"), _brain.FactValue("starting_airport"),
+		_brain.FactValue("arriving_airport"), _brain.FactValue("flight_number")])
 	_refresh_manual()
 	_refresh_status()
 	_refresh_timer()
@@ -126,7 +128,7 @@ func _apply_warn_light() -> void:
 	var wl := get_node_or_null(warn_light_path)
 	if wl == null:
 		return
-	var col: Color = _WARN_COLORS.get(_brain.CueValue("WARN"), Color.WHITE)
+	var col: Color = _WARN_COLORS.get(_brain.FactValue("WARN"), Color.WHITE)
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = col
 	mat.emission_enabled = true
@@ -144,9 +146,9 @@ func _refresh_status() -> void:
 	var lbl := get_node_or_null(status_label_path)
 	if lbl == null:
 		return
-	var cues: Array[String] = []
-	for cid in _brain.CueIds():
-		cues.append("  %s: %s" % [cid, _brain.CueValue(cid)])
+	var facts: Array[String] = []
+	for fid in _brain.FactIds():
+		facts.append("  %s: %s" % [fid, _brain.FactValue(fid)])
 	var rows: Array[String] = []
 	for id in _controls:
 		var st: int = _brain.GetState(id)
@@ -154,7 +156,7 @@ func _refresh_status() -> void:
 		if show_correctness_debug and _brain.HasRequired(id):
 			mark = "  OK" if st == _brain.RequiredState(id) else "  ..."
 		rows.append("  %s: %s%s" % [id, _brain.StateLabel(id, st), mark])
-	lbl.text = "CUES (read to tower):\n" + "\n".join(cues) + "\n\nCOCKPIT:\n" + "\n".join(rows)
+	lbl.text = "FLIGHT (read to tower):\n" + "\n".join(facts) + "\n\nCOCKPIT:\n" + "\n".join(rows)
 
 func _refresh_timer() -> void:
 	var lbl := get_node_or_null(timer_label_path)

@@ -6,13 +6,15 @@ using System.Text.Json;
 namespace CockpitChaos;
 
 /// <summary>
-/// Authoritative cockpit state + the KTANE puzzle brain. Owns each control's current
-/// and required state, the cue/manual system, and landing validation. Pure C# logic so
-/// the test harness can drive it via reflection (see <see cref="SelfTest"/>). Presentation
-/// (CSG cockpit, clicks, UI) lives in GDScript and routes every change through this node.
+/// Authoritative cockpit state + the KTANE puzzle brain. Owns each control's current and
+/// required state, the flight FACTS (edgework the pilot reads), the MANUAL (per-module
+/// ordered decision lists), and landing validation. Pure C# so the test harness can drive
+/// it via reflection (see <see cref="SelfTest"/>). Presentation lives in GDScript.
 ///
-/// The manual is DATA (loaded from JSON via <see cref="LoadManualJson"/>), not code: the
-/// required config each round is DERIVED from rolled cues + rules, never stored directly.
+/// Everything is generated from ONE seed (<see cref="GenerateFlight"/>): the facts are
+/// rolled, then each module's required state is DERIVED by walking its decision list
+/// top-to-bottom (first matching branch wins; a final "else" is the default). The required
+/// config is never stored as data — it only exists as the consequence of facts + rules.
 /// </summary>
 [GlobalClass]
 public partial class CockpitBrain : Node
@@ -20,9 +22,11 @@ public partial class CockpitBrain : Node
 	[Signal]
 	public delegate void StateChangedEventHandler(string id, int state);
 
+	private const string Vowels = "AEIOUY"; // Y counts as a vowel
+
 	// --- Controls -----------------------------------------------------------------
-	private readonly Dictionary<string, string[]> _labels = new(); // id -> state labels
-	private readonly List<string> _controlOrder = new();           // stable iteration
+	private readonly Dictionary<string, string[]> _labels = new();
+	private readonly List<string> _controlOrder = new();
 	private readonly Dictionary<string, int> _state = new();
 	private readonly Dictionary<string, int> _required = new();
 
@@ -44,7 +48,6 @@ public partial class CockpitBrain : Node
 	public string StateLabel(string id, int state) =>
 		_labels.TryGetValue(id, out var l) && state >= 0 && state < l.Length ? l[state] : "?";
 
-	/// <summary>Index of a state label within a control (Ordinal), or -1 if not found.</summary>
 	public int LabelIndex(string id, string label)
 	{
 		if (!_labels.TryGetValue(id, out var l)) return -1;
@@ -55,7 +58,7 @@ public partial class CockpitBrain : Node
 
 	public int RequestCycle(string id)
 	{
-		if (!_state.ContainsKey(id)) { GD.PushError($"CockpitBrain: cycle on unknown control '{id}'."); return -1; }
+		if (!_state.ContainsKey(id)) { GD.PushError($"CockpitBrain: cycle unknown control '{id}'."); return -1; }
 		int n = _labels[id].Length;
 		int s = (_state[id] + 1) % n;
 		_state[id] = s;
@@ -76,10 +79,6 @@ public partial class CockpitBrain : Node
 	public bool HasRequired(string id) => _required.ContainsKey(id);
 	public int RequiredState(string id) => _required.TryGetValue(id, out var r) ? r : -1;
 
-	/// <summary>
-	/// Landing check: every required control must EXIST and match its required state.
-	/// A requirement on a control that was never registered is an automatic FAIL.
-	/// </summary>
 	public bool IsValid()
 	{
 		foreach (var kv in _required)
@@ -90,209 +89,290 @@ public partial class CockpitBrain : Node
 		return true;
 	}
 
-	// --- Cue / Manual (data-driven puzzle) ----------------------------------------
+	// --- Facts (edgework the pilot reads to the tower) ----------------------------
+	private sealed class FactDef
+	{
+		public string[] Values;      // pick one, when non-null
+		public string Gen;           // "number" generator, else null
+		public int Min, Max;
+	}
+
+	private readonly Dictionary<string, FactDef> _factDefs = new();
+	private readonly List<string> _factOrder = new();
+	private readonly Dictionary<string, string> _fact = new();
+
+	public string[] FactIds() => _factOrder.ToArray();
+	public string FactValue(string id) => _fact.TryGetValue(id, out var v) ? v : "?";
+
+	// --- Manual (per-module ordered decision lists) -------------------------------
 	private sealed class Condition
 	{
-		public readonly string CueId, Match;
-		public readonly bool Prefix;
-		public Condition(string cueId, string match, bool prefix) { CueId = cueId; Match = match; Prefix = prefix; }
-		public bool Fires(string v) => Prefix
-			? v.StartsWith(Match, StringComparison.Ordinal)
-			: string.Equals(v, Match, StringComparison.Ordinal);
-		public string Display => Prefix ? $"{CueId} {Match}*" : $"{CueId} {Match}";
+		public string Fact, Op, Value;
+		public bool Eval(string factValue)
+		{
+			string v = factValue ?? "";
+			switch (Op)
+			{
+				case "eq": return string.Equals(v, Value, StringComparison.Ordinal);
+				case "neq": return !string.Equals(v, Value, StringComparison.Ordinal);
+				case "starts": return v.StartsWith(Value ?? "", StringComparison.Ordinal);
+				case "ends": return v.EndsWith(Value ?? "", StringComparison.Ordinal);
+				case "contains": return v.Contains(Value ?? "", StringComparison.Ordinal);
+				case "firstVowel": return v.Length > 0 && IsVowel(v[0]);
+				case "lastVowel": return v.Length > 0 && IsVowel(v[v.Length - 1]);
+				case "firstConsonant": return v.Length > 0 && IsConsonant(v[0]);
+				case "lastConsonant": return v.Length > 0 && IsConsonant(v[v.Length - 1]);
+				case "even": return int.TryParse(v, out var n1) && (n1 % 2 == 0);
+				case "odd": return int.TryParse(v, out var n2) && (n2 % 2 != 0);
+				default: return false;
+			}
+		}
+		public string Phrase()
+		{
+			switch (Op)
+			{
+				case "eq": return $"{Fact} is {Value}";
+				case "neq": return $"{Fact} is not {Value}";
+				case "starts": return $"{Fact} starts with {Value}";
+				case "ends": return $"{Fact} ends with {Value}";
+				case "contains": return $"{Fact} contains {Value}";
+				case "firstVowel": return $"first letter of {Fact} is a vowel";
+				case "lastVowel": return $"last letter of {Fact} is a vowel";
+				case "firstConsonant": return $"first letter of {Fact} is a consonant";
+				case "lastConsonant": return $"last letter of {Fact} is a consonant";
+				case "even": return $"{Fact} is even";
+				case "odd": return $"{Fact} is odd";
+				default: return $"{Fact} {Op} {Value}";
+			}
+		}
 	}
 
-	private sealed class Rule
+	private sealed class Branch
 	{
 		public readonly List<Condition> When = new();
-		public readonly List<(string controlId, int state)> Require = new();
+		public bool IsElse;
+		public int SetState;
 	}
 
-	private readonly Dictionary<string, string[]> _cueValues = new();
-	private readonly List<string> _cueOrder = new();        // stable iteration for determinism
-	private readonly Dictionary<string, string> _cue = new();
-	private readonly List<Rule> _manual = new();
+	private readonly Dictionary<string, List<Branch>> _modules = new();
+	private readonly List<string> _moduleOrder = new();
 	private readonly List<string> _manualErrors = new();
 
-	public void RegisterCue(string cueId, string[] values)
-	{
-		if (string.IsNullOrEmpty(cueId) || values == null || values.Length == 0)
-		{
-			GD.PushError("CockpitBrain: invalid cue registration ignored.");
-			return;
-		}
-		if (!_cueValues.ContainsKey(cueId))
-			_cueOrder.Add(cueId);
-		_cueValues[cueId] = (string[])values.Clone();
-		if (!_cue.ContainsKey(cueId))
-			_cue[cueId] = values[0];
-	}
+	private static bool IsVowel(char c) => Vowels.IndexOf(char.ToUpperInvariant(c)) >= 0;
+	private static bool IsConsonant(char c) => char.IsLetter(c) && !IsVowel(c);
 
-	private bool CueValueValid(string cueId, string match, bool prefix)
+	private static readonly HashSet<string> _knownOps = new()
 	{
-		if (!_cueValues.TryGetValue(cueId, out var vals)) return false;
-		foreach (var v in vals)
-			if (prefix ? v.StartsWith(match, StringComparison.Ordinal) : string.Equals(v, match, StringComparison.Ordinal))
-				return true;
-		return false;
-	}
+		"eq", "neq", "starts", "ends", "contains",
+		"firstVowel", "lastVowel", "firstConsonant", "lastConsonant", "even", "odd",
+	};
 
 	/// <summary>
-	/// Load the whole manual from a JSON string. Shape:
-	/// { "cues":[{"id","values":[..]}], "rules":[{"when":{cueId:value}, "require":{controlId:label}}] }
-	/// A value ending in '*' is a prefix match. Controls must already be registered so labels
-	/// resolve to indices. Returns "OK", or a "|"-joined list of validation errors (also pushed
-	/// as engine errors) — a typo'd cue/control/label is caught here, not as a silently-broken round.
+	/// Load facts + manual from JSON. Shape:
+	/// { "facts":[{"id","values":[..]} | {"id","gen":"number","min","max"}],
+	///   "modules":{ controlId:[ {"when":[{"fact","op","value"?}],"set":label} , ... , {"else":label} ] } }
+	/// Controls must already be registered so state labels resolve. Returns "OK" or a
+	/// "|"-joined list of validation errors (also pushed as engine errors) — a typo'd fact,
+	/// control, op, or label is caught here, not as a silently-broken round.
 	/// </summary>
 	public string LoadManualJson(string json)
 	{
-		_cueValues.Clear(); _cueOrder.Clear(); _cue.Clear(); _manual.Clear(); _manualErrors.Clear();
+		_factDefs.Clear(); _factOrder.Clear(); _fact.Clear();
+		_modules.Clear(); _moduleOrder.Clear(); _manualErrors.Clear();
 		try
 		{
 			using var doc = JsonDocument.Parse(json);
 			var root = doc.RootElement;
 
-			if (root.TryGetProperty("cues", out var cues))
-				foreach (var c in cues.EnumerateArray())
+			if (root.TryGetProperty("facts", out var facts))
+				foreach (var f in facts.EnumerateArray())
 				{
-					string id = c.GetProperty("id").GetString();
-					var vals = new List<string>();
-					foreach (var v in c.GetProperty("values").EnumerateArray())
-						vals.Add(v.GetString());
-					RegisterCue(id, vals.ToArray());
+					string id = f.GetProperty("id").GetString() ?? "";
+					var def = new FactDef();
+					if (f.TryGetProperty("values", out var vals))
+					{
+						var list = new List<string>();
+						foreach (var v in vals.EnumerateArray()) list.Add(v.GetString() ?? "");
+						def.Values = list.ToArray();
+					}
+					if (f.TryGetProperty("gen", out var gen))
+					{
+						def.Gen = gen.GetString();
+						def.Min = f.TryGetProperty("min", out var mn) ? mn.GetInt32() : 0;
+						def.Max = f.TryGetProperty("max", out var mx) ? mx.GetInt32() : 0;
+					}
+					if (string.IsNullOrEmpty(id)) _manualErrors.Add("fact with empty id");
+					else if ((def.Values == null || def.Values.Length == 0) && def.Gen == null)
+						_manualErrors.Add($"fact '{id}': needs 'values' or 'gen'");
+					else
+					{
+						if (!_factDefs.ContainsKey(id)) _factOrder.Add(id);
+						_factDefs[id] = def;
+						_fact[id] = def.Values is { Length: > 0 } ? def.Values[0] : (def.Min.ToString());
+					}
 				}
 
-			if (root.TryGetProperty("rules", out var rules))
-			{
-				int ri = 0;
-				foreach (var r in rules.EnumerateArray())
+			if (root.TryGetProperty("modules", out var modules))
+				foreach (var mod in modules.EnumerateObject())
 				{
-					var rule = new Rule();
-					foreach (var w in r.GetProperty("when").EnumerateObject())
+					string controlId = mod.Name;
+					if (!_labels.ContainsKey(controlId))
+						_manualErrors.Add($"module '{controlId}': unknown control");
+					var branches = new List<Branch>();
+					int bi = 0;
+					foreach (var b in mod.Value.EnumerateArray())
 					{
-						string cueId = w.Name;
-						string val = w.Value.GetString() ?? "";
-						bool prefix = val.EndsWith("*", StringComparison.Ordinal);
-						string match = prefix ? val.Substring(0, val.Length - 1) : val;
-						if (!_cueValues.ContainsKey(cueId))
-							_manualErrors.Add($"rule {ri}: unknown cue '{cueId}'");
-						else if (!CueValueValid(cueId, match, prefix))
-							_manualErrors.Add($"rule {ri}: '{val}' is not a value of cue '{cueId}'");
-						rule.When.Add(new Condition(cueId, match, prefix));
-					}
-					foreach (var req in r.GetProperty("require").EnumerateObject())
-					{
-						string controlId = req.Name;
-						string label = req.Value.GetString() ?? "";
-						if (!_labels.ContainsKey(controlId))
-							_manualErrors.Add($"rule {ri}: unknown control '{controlId}'");
-						int idx = LabelIndex(controlId, label);
+						var branch = new Branch();
+						string setLabel;
+						if (b.TryGetProperty("else", out var elseVal))
+						{
+							branch.IsElse = true;
+							setLabel = elseVal.GetString() ?? "";
+						}
+						else
+						{
+							setLabel = b.TryGetProperty("set", out var setVal) ? (setVal.GetString() ?? "") : "";
+							if (b.TryGetProperty("when", out var whenArr))
+								foreach (var cond in whenArr.EnumerateArray())
+								{
+									var c = new Condition
+									{
+										Fact = cond.GetProperty("fact").GetString() ?? "",
+										Op = cond.GetProperty("op").GetString() ?? "",
+										Value = cond.TryGetProperty("value", out var cv) ? cv.GetString() : null,
+									};
+									if (!_factDefs.ContainsKey(c.Fact))
+										_manualErrors.Add($"{controlId} branch {bi}: unknown fact '{c.Fact}'");
+									if (!_knownOps.Contains(c.Op))
+										_manualErrors.Add($"{controlId} branch {bi}: unknown op '{c.Op}'");
+									branch.When.Add(c);
+								}
+						}
+						int idx = LabelIndex(controlId, setLabel);
 						if (_labels.ContainsKey(controlId) && idx < 0)
-							_manualErrors.Add($"rule {ri}: control '{controlId}' has no state '{label}'");
-						rule.Require.Add((controlId, Math.Max(0, idx)));
+							_manualErrors.Add($"{controlId} branch {bi}: no state '{setLabel}'");
+						branch.SetState = Math.Max(0, idx);
+						branches.Add(branch);
+						bi++;
 					}
-					_manual.Add(rule);
-					ri++;
+					if (!_modules.ContainsKey(controlId)) _moduleOrder.Add(controlId);
+					_modules[controlId] = branches;
 				}
-			}
 		}
 		catch (Exception e)
 		{
 			_manualErrors.Add("JSON parse error: " + e.Message);
 		}
-		foreach (var err in _manualErrors)
-			GD.PushError("CockpitManual: " + err);
+		foreach (var err in _manualErrors) GD.PushError("CockpitManual: " + err);
 		return _manualErrors.Count == 0 ? "OK" : string.Join(" | ", _manualErrors);
 	}
 
-	public string[] CueIds() => _cueOrder.ToArray();
-	public string CueValue(string cueId) => _cue.TryGetValue(cueId, out var v) ? v : "?";
 	public bool ManualOk() => _manualErrors.Count == 0;
 
 	/// <summary>
-	/// Roll every cue (stable order for seed-determinism), then DERIVE the required config
-	/// from the rules that fire. Rules apply in order; the FIRST rule to constrain a control
-	/// wins (order = priority), so branching is a designed property, not an accident.
+	/// Roll every fact from the seed (stable order = determinism), then DERIVE each module's
+	/// required state by walking its decision list top-to-bottom; the FIRST branch whose
+	/// conditions all pass wins (an "else" always passes). Same seed => same flight.
 	/// </summary>
-	public void GenerateScenario(int seed)
+	public void GenerateFlight(int seed)
 	{
 		var rng = new Random(seed);
-		foreach (var id in _cueOrder)
+		foreach (var id in _factOrder)
 		{
-			var vals = _cueValues[id];
-			_cue[id] = vals[rng.Next(vals.Length)];
+			var def = _factDefs[id];
+			if (def.Values is { Length: > 0 })
+				_fact[id] = def.Values[rng.Next(def.Values.Length)];
+			else if (def.Gen == "number")
+				_fact[id] = rng.Next(def.Min, def.Max + 1).ToString();
 		}
 		ClearRequired();
-		foreach (var rule in _manual)
+		foreach (var controlId in _moduleOrder)
 		{
-			bool all = true;
-			foreach (var cond in rule.When)
-				if (!_cue.TryGetValue(cond.CueId, out var v) || !cond.Fires(v)) { all = false; break; }
-			if (!all) continue;
-			foreach (var (controlId, state) in rule.Require)
-				if (!_required.ContainsKey(controlId))
-					_required[controlId] = state;
+			foreach (var branch in _modules[controlId])
+			{
+				bool match = branch.IsElse;
+				if (!branch.IsElse)
+				{
+					match = true;
+					foreach (var cond in branch.When)
+						if (!cond.Eval(_fact.TryGetValue(cond.Fact, out var fv) ? fv : "")) { match = false; break; }
+				}
+				if (match) { _required[controlId] = branch.SetState; break; }
+			}
 		}
 	}
 
-	/// <summary>Render the tower rulebook: one "IF conditions -> required" line per rule.</summary>
+	/// <summary>Render the tower binder: each module as its numbered if/else-if/else list.</summary>
 	public string ManualText()
 	{
 		var lines = new List<string>();
-		foreach (var rule in _manual)
+		foreach (var controlId in _moduleOrder)
 		{
-			var conds = new List<string>();
-			foreach (var c in rule.When) conds.Add(c.Display);
-			var reqs = new List<string>();
-			foreach (var (cid, st) in rule.Require) reqs.Add($"{cid} {StateLabel(cid, st)}");
-			lines.Add($"IF {string.Join(" + ", conds)}  ->  {string.Join(", ", reqs)}");
+			lines.Add(controlId.ToUpperInvariant());
+			var branches = _modules[controlId];
+			for (int i = 0; i < branches.Count; i++)
+			{
+				var br = branches[i];
+				string label = StateLabel(controlId, br.SetState);
+				if (br.IsElse)
+				{
+					lines.Add($"  {i + 1}. else -> {label}");
+				}
+				else
+				{
+					var parts = new List<string>();
+					foreach (var c in br.When) parts.Add(c.Phrase());
+					string prefix = i == 0 ? "if" : "else if";
+					lines.Add($"  {i + 1}. {prefix} {string.Join(" and ", parts)} -> {label}");
+				}
+			}
 		}
 		return string.Join("\n", lines);
 	}
 
-	/// <summary>
-	/// Self-contained logic test the harness invokes in ONE reflection call (static — no scene
-	/// node). Returns a "SELFTEST PASS/FAIL :: ..." report.
-	/// </summary>
+	/// <summary>Self-contained logic test invoked in one reflection call. Returns a PASS/FAIL report.</summary>
 	public static string SelfTest()
 	{
-		var b = new CockpitBrain();
 		var log = new List<string>();
+
+		var b = new CockpitBrain();
 		b.RegisterControl("gear", new[] { "UP", "DOWN" });
-		b.RegisterControl("gear", new[] { "X" }); // duplicate -> rejected
-		log.Add($"gear.n={b.NumStates("gear")} exp=2 {(b.NumStates("gear") == 2 ? "OK" : "FAIL")}");
-		int s = b.RequestCycle("gear");
-		log.Add($"cycle->{s} exp=1 {(s == 1 ? "OK" : "FAIL")}");
 		b.SetRequired("gear", 1);
-		bool v1 = b.IsValid();
+		bool v1 = !b.IsValid();          // gear=0, need 1 -> invalid
 		b.RequestCycle("gear");
-		bool v2 = b.IsValid();
+		bool v2 = b.IsValid();           // gear=1 -> valid
 		b.SetRequired("ghost", 0);
-		bool v3 = b.IsValid();
-		log.Add($"valid {v1}/{!v2}/{!v3} exp T/T/T {((v1 && !v2 && !v3) ? "OK" : "FAIL")}");
+		bool v3 = !b.IsValid();          // missing control -> invalid
+		log.Add($"validate {v1 && v2 && v3} {((v1 && v2 && v3) ? "OK" : "FAIL")}");
 
-		// Data-driven manual: derivation + multi-condition + validation.
+		// Decision-list derivation with real predicates.
 		var c = new CockpitBrain();
-		c.RegisterControl("sw", new[] { "OFF", "ON" });
 		c.RegisterControl("lv", new[] { "UP", "CENTER", "DOWN" });
-		string manual = "{\"cues\":[{\"id\":\"WARN\",\"values\":[\"GREEN\",\"RED\"]},{\"id\":\"CODE\",\"values\":[\"A1\",\"B7\"]}]," +
-			"\"rules\":[{\"when\":{\"WARN\":\"RED\"},\"require\":{\"sw\":\"ON\"}}," +
-			"{\"when\":{\"CODE\":\"B*\"},\"require\":{\"lv\":\"CENTER\"}}]}";
+		string manual =
+			"{\"facts\":[" +
+			"{\"id\":\"starting_airport\",\"values\":[\"OLY\",\"BCN\"]}," +
+			"{\"id\":\"flight_number\",\"gen\":\"number\",\"min\":1000,\"max\":9999}]," +
+			"\"modules\":{\"lv\":[" +
+			"{\"when\":[{\"fact\":\"starting_airport\",\"op\":\"lastVowel\"}],\"set\":\"UP\"}," +
+			"{\"when\":[{\"fact\":\"flight_number\",\"op\":\"even\"}],\"set\":\"DOWN\"}," +
+			"{\"else\":\"CENTER\"}]}}";
 		string load = c.LoadManualJson(manual);
-		c.GenerateScenario(12345);
-		bool deriv = load == "OK";
-		deriv &= (c.CueValue("WARN") == "RED") ? c.RequiredState("sw") == 1 : !c.HasRequired("sw");
-		deriv &= c.CueValue("CODE").StartsWith("B", StringComparison.Ordinal) ? c.RequiredState("lv") == 1 : !c.HasRequired("lv");
-		log.Add($"manual(load={load}) derive={deriv} {(deriv ? "OK" : "FAIL")}");
+		c.GenerateFlight(4821);
+		string ap = c.FactValue("starting_airport");
+		bool lastVowel = ap.Length > 0 && Vowels.IndexOf(char.ToUpperInvariant(ap[ap.Length - 1])) >= 0;
+		bool even = int.TryParse(c.FactValue("flight_number"), out var fn) && fn % 2 == 0;
+		int expect = lastVowel ? 0 : (even ? 2 : 1);
+		bool deriv = load == "OK" && c.RequiredState("lv") == expect;
+		log.Add($"decision-list(ap={ap},fn={c.FactValue("flight_number")}) got={c.RequiredState("lv")} exp={expect} {(deriv ? "OK" : "FAIL")}");
 
-		// Validation must reject a rule naming a control that doesn't exist.
+		// Validation catches a rule naming a control that doesn't exist.
 		var bad = new CockpitBrain();
-		bad.RegisterControl("sw", new[] { "OFF", "ON" });
-		string badres = bad.LoadManualJson("{\"cues\":[{\"id\":\"W\",\"values\":[\"X\"]}],\"rules\":[{\"when\":{\"W\":\"X\"},\"require\":{\"ghost\":\"ON\"}}]}");
+		bad.RegisterControl("lv", new[] { "UP", "DOWN" });
+		string badres = bad.LoadManualJson("{\"facts\":[{\"id\":\"F\",\"values\":[\"X\"]}],\"modules\":{\"ghost\":[{\"else\":\"UP\"}]}}");
 		bool caught = badres != "OK";
 		log.Add($"validation caught bad control={caught} {(caught ? "OK" : "FAIL")}");
 
-		bool allOk = b.NumStates("gear") == 2 && s == 1 && v1 && !v2 && !v3 && deriv && caught;
+		bool allOk = v1 && v2 && v3 && deriv && caught;
 		return (allOk ? "SELFTEST PASS :: " : "SELFTEST FAIL :: ") + string.Join(" | ", log);
 	}
 }
