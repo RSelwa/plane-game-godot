@@ -1,3 +1,7 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# Local dev flags. Holds GODOT_MCP_DEV_CONTROL=1, which opens an UNAUTHENTICATED
+# loopback control bridge in the editor (127.0.0.1, editor-only). Never commit it.
+.env

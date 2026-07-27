@@ -36,6 +36,8 @@ principle. Decided direction: **two-tier camera**.
 - **core** — Slot `FocusPoint` (Node3D: camera position + look target) per dashboard slot; the spawner already places modules into slots, so focus anchors come free. `footprint` sets the camera distance (a 2×1 panel pulls back further than a 1×1 switch).
 - **core** — Tab cycles modules. Faster than mouse-hunting, and it is the accessibility path the blind/mute mutators will need.
 - **polish** — Slight DoF / FOV shift so the focused module reads crisp against a soft periphery.
+- **core (DECIDED)** — Framing both zones: overview is a **seated free-look with clamped pitch/yaw**, not a fixed shot. The pilot glances up for the overhead zone and loses sight of the main panel while doing it — the glance is the tension. Start ≈ −25°/+35° pitch, ±35° yaw, tuned from a screenshot; clamps are camera-rig export vars. The overhead panel is then only tilted *less steep than real*, not faked flat. Exiting focus restores the previous look direction; Tab cycling swings the head so keyboard and mouse agree.
+- **polish** — Tune whether the look-up needs a tiny head-bob / neck-strain cue so the cost of glancing up is felt, not just seen.
 
 ### Hands & body
 - **core** — Hands/forearms only, parented to the camera rig, reaching the focused module's interaction point. A full IK seated body costs a lot and is barely visible from inside the pilot's head.

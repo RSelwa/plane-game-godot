@@ -1,0 +1,114 @@
+[gd_scene format=3 uid="uid://ccflight01"]
+
+[ext_resource type="Script" path="res://scripts/flight.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/core/CockpitBrain.cs" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/dashboard.tscn" id="3"]
+[ext_resource type="Script" path="res://scripts/camera_rig.gd" id="4"]
+
+[node name="Flight" type="Node3D"]
+script = ExtResource("1")
+brain_path = NodePath("Brain")
+dashboard_path = NodePath("Dashboard")
+camera_path = NodePath("Camera3D")
+status_label_path = NodePath("UI/Status")
+manual_label_path = NodePath("UI/Manual")
+timer_label_path = NodePath("UI/Timer")
+lives_label_path = NodePath("UI/Lives")
+message_label_path = NodePath("UI/Message")
+land_button_path = NodePath("UI/LandButton")
+mission_index = 1
+mode_id = "standard"
+fixed_seed = 0
+
+[node name="Brain" type="Node" parent="."]
+script = ExtResource("2")
+
+[node name="Dashboard" parent="." instance=ExtResource("3")]
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 1.1)
+script = ExtResource("4")
+eye_path = NodePath("../Dashboard/PilotEye")
+pitch_min_deg = -25.0
+pitch_max_deg = 35.0
+yaw_limit_deg = 35.0
+focus_time = 0.3
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8660254, -0.25, 0.4330127, 0, 0.8660254, 0.5, -0.5, -0.4330127, 0.75, 0, 4, 2)
+
+[node name="Fill" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 1.0)
+light_energy = 0.8
+omni_range = 6.0
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Status" type="Label" parent="UI"]
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 340.0
+offset_bottom = 320.0
+text = "FLIGHT"
+
+[node name="Manual" type="Label" parent="UI"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -400.0
+offset_top = 24.0
+offset_right = -24.0
+offset_bottom = 420.0
+text = "TOWER"
+
+[node name="Timer" type="Label" parent="UI"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -100.0
+offset_top = 16.0
+offset_right = 100.0
+offset_bottom = 60.0
+horizontal_alignment = 1
+text = "T- 300"
+
+[node name="Lives" type="Label" parent="UI"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -140.0
+offset_top = 56.0
+offset_right = 140.0
+offset_bottom = 96.0
+horizontal_alignment = 1
+text = "GO-AROUNDS LEFT: 2"
+
+[node name="Message" type="Label" parent="UI"]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -260.0
+offset_top = -160.0
+offset_right = 260.0
+offset_bottom = -116.0
+horizontal_alignment = 1
+text = ""
+
+[node name="LandButton" type="Button" parent="UI"]
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -100.0
+offset_top = -104.0
+offset_right = 100.0
+offset_bottom = -40.0
+text = "LAND"
+
+[node name="Help" type="Label" parent="UI"]
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -96.0
+offset_right = 460.0
+offset_bottom = -24.0
+text = "RIGHT-DRAG look  ·  RIGHT-CLICK focus module  ·  TAB cycle focus
+ESC leave focus  ·  LEFT-CLICK operate control"

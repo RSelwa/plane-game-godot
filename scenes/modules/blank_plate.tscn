@@ -1,0 +1,4 @@
+[gd_scene load_steps=1 format=3 uid="uid://ccmodblank01"]
+
+[node name="BlankPlate" type="CSGBox3D"]
+size = Vector3(0.34, 0.02, 0.26)
