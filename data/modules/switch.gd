@@ -20,6 +20,7 @@ static func def() -> Dictionary:
 		"display": "MASTER SWITCH",
 		"scene": "res://scenes/modules/switch.tscn",
 		"footprint": [1, 1],
+		"zones": [DashboardLayout.ZONE_OVERHEAD, DashboardLayout.ZONE_MAIN],
 		"check": "state_match",
 		"states": [OFF, ON],
 		"facts": [CockpitFacts.WARN],

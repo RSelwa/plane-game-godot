@@ -25,12 +25,33 @@ const AIRPORTS := ["OLY", "BCN", "LHR", "JFK", "CDG", "MAD"]
 
 ## Every fact the game knows about, keyed by id. A def declares either
 ## "values" (pick one from the pool) or "gen":"number" with "min"/"max".
+##
+## "display" says WHERE in the cockpit the fact is shown (a DashboardLayout fact anchor).
+## Anchors are fixed cockpit locations with no relation to where the module reading the fact
+## was placed — a placard next to its own module would leak the association and hand the crew
+## a large part of the puzzle. Same reason KTANE keeps edgework on the bomb's sides.
 static func catalog() -> Dictionary:
 	return {
-		WARN: { "id": WARN, "values": WARN_COLOURS },
-		STARTING_AIRPORT: { "id": STARTING_AIRPORT, "values": AIRPORTS },
-		ARRIVING_AIRPORT: { "id": ARRIVING_AIRPORT, "values": AIRPORTS },
-		FLIGHT_NUMBER: { "id": FLIGHT_NUMBER, "gen": "number", "min": 1000, "max": 9999 },
+		WARN: {
+			"id": WARN, "values": WARN_COLOURS,
+			"label": "MASTER WARNING",
+			"display": { "anchor": "glareshield" },
+		},
+		STARTING_AIRPORT: {
+			"id": STARTING_AIRPORT, "values": AIRPORTS,
+			"label": "DEPARTURE",
+			"display": { "anchor": "window_sticker" },
+		},
+		ARRIVING_AIRPORT: {
+			"id": ARRIVING_AIRPORT, "values": AIRPORTS,
+			"label": "DESTINATION",
+			"display": { "anchor": "side_panel" },
+		},
+		FLIGHT_NUMBER: {
+			"id": FLIGHT_NUMBER, "gen": "number", "min": 1000, "max": 9999,
+			"label": "FLIGHT No.",
+			"display": { "anchor": "yoke_tag" },
+		},
 	}
 
 static func has(id: String) -> bool:

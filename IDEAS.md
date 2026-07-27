@@ -25,6 +25,32 @@ audio — last). Move an item to CLAUDE.md's roadmap when it becomes the next bu
 - **polish** — Go-around presentation: the LAND press that fails should *feel* like a go-around (engine spool, "GOING AROUND", altitude callout), not like an error dialog.
 - **polish** — Mission-select screen shows the dashboard silhouette so the crew sees the module count grow across the campaign.
 
+### Camera & interaction (the "large dashboard" problem)
+KTANE's bomb is small enough to orbit and still read; a cockpit panel is not. At a framing
+where the whole dashboard fits, nothing is legible — so free orbit fights the readability-first
+principle. Decided direction: **two-tier camera**.
+- **core** — Overview tier: whole panel, shows *which* modules exist + warning lights, deliberately NOT fine labels. Hover highlights, click / Enter focuses.
+- **core** — Focus tier: camera tweens above one module, ~0.3s. That transition cost IS the pressure — the pilot cannot glance everywhere for free. Instant removes the spatial tension; a full second is just annoying.
+- **core** — Focus must be a **camera move in 3D, never a fullscreen UI modal**. Neighbouring panels stay visible at the screen edges, timer + go-arounds pinned to the HUD. Lose peripheral awareness and the panic goes with it.
+- **core** — This makes the information asymmetry *physical*: the pilot literally cannot see everything at once, so they must remember and describe. The camera enforces the core loop instead of a rule doing it.
+- **core** — Slot `FocusPoint` (Node3D: camera position + look target) per dashboard slot; the spawner already places modules into slots, so focus anchors come free. `footprint` sets the camera distance (a 2×1 panel pulls back further than a 1×1 switch).
+- **core** — Tab cycles modules. Faster than mouse-hunting, and it is the accessibility path the blind/mute mutators will need.
+- **polish** — Slight DoF / FOV shift so the focused module reads crisp against a soft periphery.
+
+### Hands & body
+- **core** — Hands/forearms only, parented to the camera rig, reaching the focused module's interaction point. A full IK seated body costs a lot and is barely visible from inside the pilot's head.
+- **content** — **One hand occupied** as a real mechanic: holding coffee or a cigarette blocks two-hand actions, so the pilot must put it down. Comedy that is also a rule.
+- **polish** — Idle hand business: tapping, cigarette ash, flinching on a warning light.
+
+### Community content / modding (long-term, but decide the seam early)
+- **core** — **Architectural warning:** the current data layer is GDScript `class_name` files compiled into the project, which is great for typo-safety and terrible for modding — a player cannot add one. Keep the built-in modules as they are, but plan for `ModuleRegistry.defs()` to **merge two sources**: compiled built-ins + module packs scanned at runtime. Deciding this before the registry has many callers is cheap; retrofitting it later is not.
+- **core** — A module pack = a folder with a data file (JSON or `.tres`, runtime-loadable — not `.gd`), a `.tscn` prefab, and a manual section. Same fields the built-in defs use, so the pack format is just the def shape serialised.
+- **core** — Packs must be validated on load with the existing `ModuleRegistry.validate()` rules and **fail loudly and individually** — one broken community module must not take down the registry.
+- **content** — Community *missions* are the easier first step (a mission is only ids + time + lives) and would ship long before community *modules*.
+- **content** — Steam Workshop for module packs and mission packs; a "verified/rated" flag so the campaign only draws from sane content.
+- **content** — Mission/seed sharing codes as the zero-infrastructure version of community content.
+- **polish** — In-game module authoring preview (spawn one module, roll facts, read the derived answer) — also the fastest internal authoring tool, so build it for ourselves first.
+
 ### Mutators (post-loop)
 - **content** — Blind / mute / deaf, radio interference, random control inversion (see the design doc's mutator list). All are pure modifiers, so they slot next to `data/modes.gd` rather than into missions.
 

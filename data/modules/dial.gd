@@ -17,6 +17,7 @@ static func def() -> Dictionary:
 		"display": "ARMING DIAL",
 		"scene": "res://scenes/modules/dial.tscn",
 		"footprint": [1, 1],
+		"zones": [DashboardLayout.ZONE_OVERHEAD, DashboardLayout.ZONE_MAIN],
 		"check": "state_match",
 		"states": [SAFE, ARMED],
 		"facts": [CockpitFacts.FLIGHT_NUMBER],

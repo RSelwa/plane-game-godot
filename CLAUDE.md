@@ -67,6 +67,7 @@ Decided for testability: MCP/reflection can drive and inspect **C#** but is blin
   - `data/ops.gd` (`CockpitOps`) — condition operator constants, mirroring the C# `Condition.Eval` switch.
   - `data/modules/<id>.gd` (`ModuleSwitch`/`ModuleDial`/`ModuleLever`) — **one file per module TYPE**, self-contained: scene, footprint, states, the facts it reads, its decision list.
   - `data/module_registry.gd` (`ModuleRegistry`) — id → definition. `build_manual_data(ids)` assembles a mission's payload in the exact shape `LoadManualJson` eats. `validate()` catches typo'd facts/ops/states.
+  - `data/dashboard.gd` (`DashboardLayout`) — the 12-slot grid (overhead 1×4 + main 2×4), the fixed fact anchors, and seeded `place(module_ids, seed)`.
   - `data/campaign.gd` (`CockpitCampaign`) — the ordered mission list. `validate()` catches unknown module ids.
   - `data/modes.gd` (`CockpitModes`) — difficulty modes as pure modifiers over a mission.
   - `data/manual.gd` (`CockpitManual`) — **LEGACY**, still what `cockpit_manager.gd` loads today. Superseded by the registry; delete once the manager reads missions.
@@ -97,6 +98,16 @@ A module answers one question: **is it correct?** Two implementations, chosen by
 A genuinely new shape = one new named check strategy in C#, rare and batched with other rebuilds. **Never write per-module `is_correct` code** — that throws away the decision-list engine.
 Check returns detail, not just a bool: `{id, ok, expected, actual}` per module, so the recap can say *"GEAR LEVER: expected DOWN, was UP"*.
 
+### Dashboard layout & camera
+**`data/dashboard.gd` (`DashboardLayout`)** owns the logical grid; the cockpit scene owns the 3D positions and must name its marker nodes with the generated slot ids (`"<zone>_r<row>_c<col>"`, e.g. `main_r1_c3`).
+- **12 slots in two zones:** `overhead` 1×4 (above the windshield) and `main` 2×4 (in front of the pilot). The windshield gap between them has no slots — it is what makes the panel read as a cockpit, and it forces the pilot to look in two places.
+- A module declares `footprint` `[w,h]` and `zones` (which zones it may live in — a gear lever overhead reads as nonsense). `place(module_ids, seed)` is **seeded and deterministic**: biggest footprint first, ties broken on id, so a shared seed reproduces the whole flight *including the layout*. Returns `{placements, empty, unplaced}`.
+- **Unfilled slots stay blank** (a plate). An early two-module mission looking almost empty is the intended difficulty tell.
+- **Facts are NOT on slots.** `fact_anchors()` are fixed cockpit locations (`glareshield`, `yoke_tag`, `window_sticker`, `side_panel`) and each fact names one in its `display.anchor`. **Never place a fact placard beside the module that reads it** — that leaks the fact↔module association and gives away a large part of the puzzle. Same reason KTANE keeps edgework on the bomb's sides.
+- **Camera = two tiers, KTANE-style** (focus the bomb / lean to the clock): *overview* shows which modules exist and the warning lights but not fine labels; *focus* tweens the camera above one module (~0.3s — that cost IS the pressure). Focus is a **camera move in 3D, never a fullscreen UI modal**: neighbours stay visible at the edges, timer and go-arounds stay on the HUD, or the panic is lost. Each slot gets a `FocusPoint` (camera position + look target); `footprint` sets the distance. Non-module props (fact placards, the LAND lever) are focus targets too. Tab cycles.
+- This is what makes the information asymmetry **physical**: the pilot cannot see everything at once, so they must remember and describe. The camera enforces the core loop instead of a rule doing it.
+- **Hands:** first-person seated pilot, hands/forearms only parented to the camera rig — a full IK body is barely visible from inside the head.
+
 ### Key decisions this session
 - **Solo-first prototype**, on-screen manual. Networking (2-player split pilot/tower screens) deferred until the loop is proven fun.
 - **Central store = the brain's facts, read by name.** No scattered global getters. Rules (data) reference facts by name; only display nodes read a fact through the brain. Reads are safe; scattered mutable global state is the thing to avoid.
@@ -106,7 +117,7 @@ Check returns detail, not just a bool: `{id, ok, expected, actual}` per module, 
 - **Restart discipline** (see MCP rules above): clean quit only, never force-kill, never two instances.
 
 ### Milestones done
-A′ data-layer + C# brain · B round loop (scenario→manual→timer→LAND→result) · C information-asymmetry puzzle · scene flow (menu/settings/recap) · decision-list manual engine (data-driven) · **module registry + campaign/mission/modes data layer** (`data/facts.gd`, `data/ops.gd`, `data/modules/*`, `data/module_registry.gd`, `data/campaign.gd`, `data/modes.gd` — data only, not yet wired into the round).
+A′ data-layer + C# brain · B round loop (scenario→manual→timer→LAND→result) · C information-asymmetry puzzle · scene flow (menu/settings/recap) · decision-list manual engine (data-driven) · **module registry + campaign/mission/modes data layer** (`data/facts.gd`, `data/ops.gd`, `data/modules/*`, `data/module_registry.gd`, `data/dashboard.gd`, `data/campaign.gd`, `data/modes.gd` — data only, not yet wired into the round).
 
 ### Next (roadmap)
 1. **Wire the data layer into the round** — `cockpit_manager.gd` takes a mission + mode instead of `CockpitManual.data()`: `ModuleRegistry.build_manual_data(mission.modules)` → brain; clock/lives from `CockpitModes.effective_*`. Then delete `data/manual.gd`.

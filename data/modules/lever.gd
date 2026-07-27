@@ -19,6 +19,7 @@ static func def() -> Dictionary:
 		"display": "GEAR LEVER",
 		"scene": "res://scenes/modules/lever.tscn",
 		"footprint": [1, 1],
+		"zones": [DashboardLayout.ZONE_MAIN],   # a gear lever overhead would read as nonsense
 		"check": "state_match",
 		"states": [UP, CENTER, DOWN],
 		"facts": [CockpitFacts.STARTING_AIRPORT, CockpitFacts.ARRIVING_AIRPORT, CockpitFacts.WARN],
