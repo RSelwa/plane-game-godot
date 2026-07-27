@@ -62,7 +62,14 @@ Decided for testability: MCP/reflection can drive and inspect **C#** but is blin
 - **`scripts/cockpit_manager.gd`** — round orchestration: registers controls into the brain, loads the manual, rolls the flight, updates UI, LAND/timer, snapshots the result → recap.
 - **`scripts/cockpit_control.gd`** — control VIEW: click emits `cycle_requested`; `apply_state(state)` tilts a handle. Owns no canonical state (routes through brain — the future networking/authority seam).
 - **`scripts/game.gd`** — autoload singleton `Game`: scene transitions + carries `last_result` between cockpit and recap.
-- **`data/manual.gd`** — **THE MANUAL AS DATA** (`CockpitManual.data()`). Edit this to change the puzzle; hot-reloads (F6, no restart).
+- **`data/` — ALL CONTENT AS DATA.** Every file is GDScript with `static func`s, so it hot-reloads (F6, no restart, no rebuild):
+  - `data/facts.gd` (`CockpitFacts`) — the fact catalog (edgework the pilot reads). Declared once, referenced by name.
+  - `data/ops.gd` (`CockpitOps`) — condition operator constants, mirroring the C# `Condition.Eval` switch.
+  - `data/modules/<id>.gd` (`ModuleSwitch`/`ModuleDial`/`ModuleLever`) — **one file per module TYPE**, self-contained: scene, footprint, states, the facts it reads, its decision list.
+  - `data/module_registry.gd` (`ModuleRegistry`) — id → definition. `build_manual_data(ids)` assembles a mission's payload in the exact shape `LoadManualJson` eats. `validate()` catches typo'd facts/ops/states.
+  - `data/campaign.gd` (`CockpitCampaign`) — the ordered mission list. `validate()` catches unknown module ids.
+  - `data/modes.gd` (`CockpitModes`) — difficulty modes as pure modifiers over a mission.
+  - `data/manual.gd` (`CockpitManual`) — **LEGACY**, still what `cockpit_manager.gd` loads today. Superseded by the registry; delete once the manager reads missions.
 - **Scenes:** `scenes/main_menu.tscn` (main scene) → `scenes/cockpit.tscn` → `scenes/round_recap.tscn` (+ `settings.tscn` stub).
 
 ### The puzzle engine (KTANE decision lists)
@@ -71,22 +78,45 @@ Everything generates from ONE seed (`CockpitBrain.GenerateFlight(seed)` — same
 - **Modules = ordered decision lists** (if / else-if / else). The brain walks each list top-down; the FIRST branch whose conditions all pass sets that control's required state; a final `{else:…}` is the default.
 - **Conditions are objects** `{fact, op, value?}`. Ops: `eq neq starts ends contains firstVowel lastVowel firstConsonant lastConsonant even odd`. **Y is a vowel.** Multiple conditions in one `when` = AND.
 - The required config is **DERIVED, never stored or shown** — only looked up. `ManualText()` renders each module as a numbered if/else list (the tower binder).
-- Authoring flow: edit `data/manual.gd` (named constants → typo-safe) → manager `JSON.stringify`s it → `brain.LoadManualJson()` which **validates** (unknown fact/control/op/label = clear error) then derives.
+- Authoring flow: `ModuleRegistry.build_manual_data(mission.modules)` (named constants → typo-safe) → manager `JSON.stringify`s it → `brain.LoadManualJson()` which **validates** (unknown fact/control/op/label = clear error) then derives.
+- **Facts are per-module, not global.** Each module declares the facts it reads; a round rolls only the UNION of its mission's modules' facts. A two-module mission generates two facts, not the whole catalog. Unused facts are free red herrings — a red herring must be a deliberate mission choice, never catalog fallout.
+
+### Campaign, missions, difficulty (KTANE mission model)
+Difficulty is **two hand-authored knobs and nothing else**: *which* module types are on the dashboard, and *how many*. There is deliberately **no cost/budget/tier system** — a module type's complexity is inherent to the type and lives in the module's own file; the campaign only picks ids.
+- **Authoring rule:** introduce exactly ONE new module type per mission, keep it beside types the crew already knows, and only raise the count once the new type is taught. Unfilled dashboard slots stay blank — an early mission is meant to *look* easy.
+- **Mission** = `{id, name, time, lives, modules:[ids]}`. Ids only; adding a module type never touches `campaign.gd`, adding a mission never touches a module file.
+- **Lives = LAND attempts.** `lives: 1` → a wrong configuration crashes on the first press. A failed attempt costs **a life and nothing else** — no hidden clock penalty, no mid-round surprises (the clock already supplies the tension; the time spent re-checking is the natural, visible cost). The clock hitting zero is a crash regardless of lives left.
+- **LAND has three outcomes:** `LANDED` (all modules ok) / `GO_AROUND` (wrong, lives remain) / `CRASHED` (wrong on the last life, or clock zero). UI word for a spent life is **"GO-AROUND"**.
+- **Modes are pure modifiers** (`lives_bonus`, `time_scale`, `feedback`), all announced before the round starts. `effective_lives` is floored at 1 — a mode may only ever be kinder than the mission.
+- **Failure feedback is the real difficulty dial:** `count` ("3 systems misconfigured") is standard, `none` ("Landing aborted") is ironman. Never name the wrong module — with several attempts that collapses into brute force. Always compute the full per-module detail and gate only what the *in-round* UI shows; the post-round recap shows everything on every mode, because that is where learning happens and it costs nothing.
+
+### Module contract
+A module answers one question: **is it correct?** Two implementations, chosen by the module's `check` field — the rules stay DATA either way:
+- `state_match` (default) — generic: current state == the state derived from the decision list. Simple modules (switch/dial/lever) need **zero code**; a new one is a data file plus a prefab.
+- `value_match` — for modules whose answer is a computed value, not a state label (destination entry, coordinate calculation). Rules still data; `set` may be `"@fact_id"` to substitute a fact's value.
+A genuinely new shape = one new named check strategy in C#, rare and batched with other rebuilds. **Never write per-module `is_correct` code** — that throws away the decision-list engine.
+Check returns detail, not just a bool: `{id, ok, expected, actual}` per module, so the recap can say *"GEAR LEVER: expected DOWN, was UP"*.
 
 ### Key decisions this session
 - **Solo-first prototype**, on-screen manual. Networking (2-player split pilot/tower screens) deferred until the loop is proven fun.
 - **Central store = the brain's facts, read by name.** No scattered global getters. Rules (data) reference facts by name; only display nodes read a fact through the brain. Reads are safe; scattered mutable global state is the thing to avoid.
+- **No difficulty budget / cost / tier system.** Considered and rejected: stay literally on the KTANE model — hand-authored missions naming module ids, difficulty emerging from which types × how many.
+- **No punitive surprises.** A failed LAND costs a life only. Anything a mode changes is shown before the round starts. The clock is the pressure; nothing else deducts silently.
 - **Raw CSG placeholders** for all geometry; art last (the art direction — chunky low-poly, readability-first — means the placeholder→final gap is small).
 - **Restart discipline** (see MCP rules above): clean quit only, never force-kill, never two instances.
 
 ### Milestones done
-A′ data-layer + C# brain · B round loop (scenario→manual→timer→LAND→result) · C information-asymmetry puzzle · scene flow (menu/settings/recap) · **decision-list manual engine (data-driven)**.
+A′ data-layer + C# brain · B round loop (scenario→manual→timer→LAND→result) · C information-asymmetry puzzle · scene flow (menu/settings/recap) · decision-list manual engine (data-driven) · **module registry + campaign/mission/modes data layer** (`data/facts.gd`, `data/ops.gd`, `data/modules/*`, `data/module_registry.gd`, `data/campaign.gd`, `data/modes.gd` — data only, not yet wired into the round).
 
 ### Next (roadmap)
-1. **Modular prefab cockpit + spawner + layout data** — the "changing dashboard": each control type is its own prefab scene; the cockpit holds empty slot markers; a spawner reads layout data (seeded) and instantiates. Turns the fixed cockpit into a procedural one. **This is the next big build.**
-2. Failure events (stuck / inverted / lying-indicator controls) — implement in the input→state pipeline (can be GDScript, no C# rebuild).
-3. 2-player networking (host-client P2P) + split screens + lobby — only after the loop is proven.
-4. Auto-generated manuals from modules; more modules/facts (all data now).
+1. **Wire the data layer into the round** — `cockpit_manager.gd` takes a mission + mode instead of `CockpitManual.data()`: `ModuleRegistry.build_manual_data(mission.modules)` → brain; clock/lives from `CockpitModes.effective_*`. Then delete `data/manual.gd`.
+2. **C# batch (one rebuild, one restart):** module check strategies (`state_match` / `value_match` + `{id, ok, expected, actual}` results) · `AttemptLand()` owning the lives counter and returning `LANDED`/`GO_AROUND`/`CRASHED` · `SelfTest()` coverage for the go-around path. Front-load everything here — batch it.
+3. **Modular prefab cockpit + spawner + slot grid** — each module type is its own prefab scene; the cockpit holds slot markers with footprints; the spawner instantiates the mission's modules and leaves the rest **blank**. Turns the fixed cockpit into the procedural, difficulty-signalling dashboard.
+4. Mission select + campaign progression UI; per-mission recap with the full module breakdown.
+5. Complex module types (destination entry, coordinate calculation) — by then, registry entries with a `value_match` check and zero engine change.
+6. Failure events (stuck / inverted / lying-indicator controls) — implement in the input→state pipeline (can be GDScript, no C# rebuild).
+7. 2-player networking (host-client P2P) + split screens + lobby — only after the loop is proven.
+8. Auto-generated manuals from modules; more modules/facts (all data now).
 - Keep an **`IDEAS.md`** backlog, tagged core/content/polish; implement core-affecting ideas early, park content/polish for the content phase.
 
 ### Cleanup
