@@ -10,16 +10,20 @@ extends RefCounted
 ## red herring should be a deliberate mission choice, not an accident of the catalog.
 
 # ── Fact ids ──
-const WARN := "WARN"                       # master warning light colour
+# The id STRING is what crosses the JSON payload into the brain, keys the module rules, and
+# prints in the HUD — so it follows one convention, snake_case, like control / module /
+# mission / mode ids. The CONSTANT is SCREAMING_CASE; only its value is snake_case.
+const WARNING_LIGHT := "warning_light"     # master warning light colour
 const STARTING_AIRPORT := "starting_airport"
 const ARRIVING_AIRPORT := "arriving_airport"
 const FLIGHT_NUMBER := "flight_number"
 
 # ── Value pools ──
+# Pool VALUES are shown to the pilot and read aloud, so they stay uppercase display text.
 const GREEN := "GREEN"
 const AMBER := "AMBER"
 const RED := "RED"
-const WARN_COLOURS := [GREEN, AMBER, RED]
+const WARNING_COLOURS := [GREEN, AMBER, RED]
 
 const AIRPORTS := ["OLY", "BCN", "LHR", "JFK", "CDG", "MAD"]
 
@@ -32,8 +36,8 @@ const AIRPORTS := ["OLY", "BCN", "LHR", "JFK", "CDG", "MAD"]
 ## a large part of the puzzle. Same reason KTANE keeps edgework on the bomb's sides.
 static func catalog() -> Dictionary:
 	return {
-		WARN: {
-			"id": WARN, "values": WARN_COLOURS,
+		WARNING_LIGHT: {
+			"id": WARNING_LIGHT, "values": WARNING_COLOURS,
 			"label": "MASTER WARNING",
 			"display": { "anchor": "glareshield" },
 		},

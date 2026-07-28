@@ -14,7 +14,7 @@ Everything is GDScript now. There is no C# and no MCP addon (removed). The game 
 
 ## How the CockpitBrain works
 
-`CockpitBrain` (`scripts/core/cockpit_brain.gd`) is a `Node` with `class_name CockpitBrain`. One instance lives in a scene (the `Brain` node in `flight.tscn` / `cockpit.tscn`). It holds four things for the current round:
+`CockpitBrain` (`scripts/core/cockpit_brain.gd`) is a `Node` with `class_name CockpitBrain`. One instance lives in a scene (the `Brain` node in `flight.tscn`). It holds four things for the current round:
 
 1. **Controls** — for each control id: its state labels, its current state (`_state`), and its derived required state (`_required`).
 2. **Facts** — the edgework the pilot reads aloud (warning light, airports, flight number). Rolled from the seed.
@@ -60,7 +60,7 @@ So: **brain = the single source of truth for the current round's modules; `Game`
 ```
 player clicks a control (StaticBody3D, cockpit_control.gd)
   -> emits signal  cycle_requested(id)
-  -> flight.gd / cockpit_manager.gd catches it
+  -> flight.gd catches it
   -> brain.request_cycle(id)              (brain is the authority; it decides the new state)
   -> brain emits  state_changed(id, new_state)
   -> manager calls control.apply_state(new_state)   (the view tilts its handle)

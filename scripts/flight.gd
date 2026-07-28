@@ -8,8 +8,8 @@ class_name FlightRound
 ## pure modifiers. A failed LAND costs a life and NOTHING else — no hidden clock penalty.
 ## The clock reaching zero is a crash regardless of lives left.
 ##
-## Successor to cockpit_manager.gd, which is still wired to the old fixed three-control
-## cockpit and the legacy data/manual.gd.
+## The only round orchestrator. Replaced cockpit_manager.gd (deleted along with its fixed
+## three-control cockpit.tscn and the legacy data/manual.gd).
 
 @export var brain_path: NodePath
 @export var dashboard_path: NodePath

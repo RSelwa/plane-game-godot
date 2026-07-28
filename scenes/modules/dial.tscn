@@ -7,8 +7,6 @@ size = Vector3(0.32, 0.4, 0.32)
 
 [node name="ModuleDial" type="StaticBody3D"]
 script = ExtResource("1")
-control_id = "dial"
-state_labels = PackedStringArray("SAFE", "ARMED")
 handle_path = NodePath("Handle")
 min_angle_deg = 0.0
 max_angle_deg = 90.0

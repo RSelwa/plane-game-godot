@@ -78,23 +78,25 @@ Both are **read-only**; only the main thread writes files, so there is never a c
 ### Architecture: C# brain (logic) + GDScript (presentation) + data (content)
 Decided for testability: MCP/reflection can drive and inspect **C#** but is blind to GDScript, so the win/lose logic lives in C# where the test harness reaches it; iteration-fast presentation stays GDScript.
 - **`scripts/core/CockpitBrain.cs`** — the authoritative brain (`[GlobalClass]` C# `Node`). Owns control states, required config, the FACTS (edgework), the MANUAL (decision-list engine), validation. Has a **static `SelfTest()`** the harness runs via `reflection-method-call` (returns `"SELFTEST PASS/FAIL :: …"`). Keep this the single source of truth. **A C# change forces a restart** — batch them, keep logic here complete so rebuilds stay rare.
-- **`scripts/cockpit_manager.gd`** — round orchestration: registers controls into the brain, loads the manual, rolls the flight, updates UI, LAND/timer, snapshots the result → recap.
-- **`scripts/cockpit_control.gd`** — control VIEW: click emits `cycle_requested`; `apply_state(state)` tilts a handle. Owns no canonical state (routes through brain — the future networking/authority seam).
+- **`scripts/flight.gd`** (`FlightRound`) — round orchestration: resolves the mission, spawns its modules, registers controls into the brain, loads the manual, rolls the flight, updates UI, LAND/timer, snapshots the result → recap. (Replaced `cockpit_manager.gd`, deleted.)
+- **`scripts/module_spawner.gd`** (`ModuleSpawner`) — instances each mission module into its slot marker, blank-plates the rest, and **pushes `control_id` + `state_labels` from the module's data file** onto the prefab. A `.tscn` stores literals and cannot reference a constant, so prefabs deliberately declare neither.
+- **`scripts/cockpit_control.gd`** — control VIEW: click emits `cycle_requested`; `apply_state(state)` tilts a handle. Owns no canonical state (routes through brain — the future networking/authority seam). `control_id`/`state_labels` default to EMPTY on purpose — the spawner fills them.
 - **`scripts/game.gd`** — autoload singleton `Game`: scene transitions + carries `last_result` between cockpit and recap.
 - **`data/` — ALL CONTENT AS DATA.** Every file is GDScript with `static func`s, so it hot-reloads (F6, no restart, no rebuild):
   - `data/facts.gd` (`CockpitFacts`) — the fact catalog (edgework the pilot reads). Declared once, referenced by name.
-  - `data/ops.gd` (`CockpitOps`) — condition operator constants, mirroring the C# `Condition.Eval` switch.
+  - `data/ops.gd` (`CockpitOps`) — **RE-EXPORT ONLY.** Every value points at `ManualEngine`, which owns each operator's name, behaviour and phrasing in one `OPS` table entry. Content may depend on the engine, never the reverse.
   - `data/modules/<id>.gd` (`ModuleSwitch`/`ModuleDial`/`ModuleLever`) — **one file per module TYPE**, self-contained: scene, footprint, states, the facts it reads, its decision list.
   - `data/module_registry.gd` (`ModuleRegistry`) — id → definition. `build_manual_data(ids)` assembles a mission's payload in the exact shape `LoadManualJson` eats. `validate()` catches typo'd facts/ops/states.
   - `data/dashboard.gd` (`DashboardLayout`) — the 12-slot grid (overhead 1×4 + main 2×4), the fixed fact anchors, and seeded `place(module_ids, seed)`.
   - `data/campaign.gd` (`CockpitCampaign`) — the ordered mission list. `validate()` catches unknown module ids.
   - `data/modes.gd` (`CockpitModes`) — difficulty modes as pure modifiers over a mission.
-  - `data/manual.gd` (`CockpitManual`) — **LEGACY**, still what `cockpit_manager.gd` loads today. Superseded by the registry; delete once the manager reads missions.
-- **Scenes:** `scenes/main_menu.tscn` (main scene) → `scenes/cockpit.tscn` → `scenes/round_recap.tscn` (+ `settings.tscn` stub).
+- **Scenes:** `scenes/main_menu.tscn` (main scene) → `scenes/flight.tscn` (+ `scenes/dashboard.tscn`) → `scenes/round_recap.tscn` (+ `settings.tscn` stub).
+- **ONE OWNER PER CONSTANT — no global constants file.** Every `class_name` script is already reachable from anywhere, so centralising would only add a copy. The owner is the file whose behaviour defines the thing: fact ids + pools → `data/facts.gd`; operator name/behaviour/phrasing → `scripts/core/manual_engine.gd`; module id + states + rules → `data/modules/<id>.gd`; slots/zones/anchors → `data/dashboard.gd`; mission ids → `data/campaign.gd`; mode ids → `data/modes.gd`; scene paths → `scripts/game.gd`. Two things the language cannot reduce to a single declaration — a `.tscn` cannot reference a constant, and a `match` cannot be enumerated — so they are guarded by `ModuleRegistry.validate()` instead of being made impossible.
+- **Fact id convention:** the id STRING is lowercase `snake_case` (it crosses JSON, keys the rules, prints in the HUD), the naming CONSTANT is `SCREAMING_CASE`. Pool VALUES stay uppercase display text. Enforced by `ModuleRegistry.validate()`.
 
 ### The puzzle engine (KTANE decision lists)
 Everything generates from ONE seed (`CockpitBrain.GenerateFlight(seed)` — same seed = same flight, reproducible for tests/sharing):
-- **Facts (edgework)** the pilot reads aloud: `WARN` light {GREEN,AMBER,RED}, `starting_airport`/`arriving_airport` (code pool), `flight_number` (number gen). A fact declares either `values:[…]` (pick one) or `gen:"number"` + `min`/`max`.
+- **Facts (edgework)** the pilot reads aloud: `warning_light` {GREEN,AMBER,RED}, `starting_airport`/`arriving_airport` (code pool), `flight_number` (number gen). A fact declares either `values:[…]` (pick one) or `gen:"number"` + `min`/`max`.
 - **Modules = ordered decision lists** (if / else-if / else). The brain walks each list top-down; the FIRST branch whose conditions all pass sets that control's required state; a final `{else:…}` is the default.
 - **Conditions are objects** `{fact, op, value?}`. Ops: `eq neq starts ends contains firstVowel lastVowel firstConsonant lastConsonant even odd`. **Y is a vowel.** Multiple conditions in one `when` = AND.
 - The required config is **DERIVED, never stored or shown** — only looked up. `ManualText()` renders each module as a numbered if/else list (the tower binder).
@@ -139,7 +141,7 @@ Check returns detail, not just a bool: `{id, ok, expected, actual}` per module, 
 A′ data-layer + C# brain · B round loop (scenario→manual→timer→LAND→result) · C information-asymmetry puzzle · scene flow (menu/settings/recap) · decision-list manual engine (data-driven) · **module registry + campaign/mission/modes data layer** (`data/facts.gd`, `data/ops.gd`, `data/modules/*`, `data/module_registry.gd`, `data/dashboard.gd`, `data/campaign.gd`, `data/modes.gd` — data only, not yet wired into the round).
 
 ### Next (roadmap)
-1. **Wire the data layer into the round** — `cockpit_manager.gd` takes a mission + mode instead of `CockpitManual.data()`: `ModuleRegistry.build_manual_data(mission.modules)` → brain; clock/lives from `CockpitModes.effective_*`. Then delete `data/manual.gd`.
+1. ~~**Wire the data layer into the round**~~ — DONE, in `scripts/flight.gd`: mission + mode → `ModuleRegistry.build_manual_data(mission.modules)` → brain, clock/lives from `CockpitModes.effective_*`. `data/manual.gd`, `scripts/cockpit_manager.gd` and `scenes/cockpit.tscn` are deleted; `Game.COCKPIT_LEGACY` is gone.
 2. **C# batch (one rebuild, one restart):** module check strategies (`state_match` / `value_match` + `{id, ok, expected, actual}` results) · `AttemptLand()` owning the lives counter and returning `LANDED`/`GO_AROUND`/`CRASHED` · `SelfTest()` coverage for the go-around path. Front-load everything here — batch it.
 3. **Modular prefab cockpit + spawner + slot grid** — each module type is its own prefab scene; the cockpit holds slot markers with footprints; the spawner instantiates the mission's modules and leaves the rest **blank**. Turns the fixed cockpit into the procedural, difficulty-signalling dashboard.
 4. Mission select + campaign progression UI; per-mission recap with the full module breakdown.

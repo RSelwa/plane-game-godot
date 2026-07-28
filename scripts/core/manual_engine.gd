@@ -4,12 +4,82 @@ class_name ManualEngine
 ## Owns the MANUAL: per-module ordered decision lists (if / else-if / else) and the
 ## condition engine that evaluates them. Derives each module's required state by walking
 ## its list top-to-bottom (first matching branch wins; a final "else" is the default).
+##
+## SINGLE SOURCE OF TRUTH FOR OPERATORS. Every operator is declared exactly ONCE, in OPS:
+## its name (the const used as the key), what it does ("eval"), how the tower binder reads
+## it ("phrase"), and whether a condition must carry a value ("needs_value"). Adding an
+## operator = one entry here and nothing else.
+##
+## data/ops.gd only RE-EXPORTS the names so module files never spell one by hand. The
+## direction matters: content (data/) may depend on the engine, never the reverse — it is
+## the eval below that defines what an operator MEANS, so the engine owns it.
 
 const VOWELS := "AEIOUY"  # Y counts as a vowel
-const KNOWN_OPS := [
-	"eq", "neq", "starts", "ends", "contains",
-	"firstVowel", "lastVowel", "firstConsonant", "lastConsonant", "even", "odd",
-]
+
+# ── Operator names ──
+const EQ := "eq"
+const NEQ := "neq"
+const STARTS := "starts"
+const ENDS := "ends"
+const CONTAINS := "contains"
+const FIRST_VOWEL := "firstVowel"
+const LAST_VOWEL := "lastVowel"
+const FIRST_CONSONANT := "firstConsonant"
+const LAST_CONSONANT := "lastConsonant"
+const EVEN := "even"
+const ODD := "odd"
+
+## op name -> { eval: Callable(fact_value: String, cond_value: String) -> bool,
+##              phrase: String, needs_value: bool }
+## "phrase" is formatted with the fact name, then the condition value when needs_value.
+static var OPS: Dictionary = {
+	EQ: {
+		"eval": func(v: String, x: String) -> bool: return v == x,
+		"phrase": "%s is %s", "needs_value": true },
+	NEQ: {
+		"eval": func(v: String, x: String) -> bool: return v != x,
+		"phrase": "%s is not %s", "needs_value": true },
+	STARTS: {
+		"eval": func(v: String, x: String) -> bool: return v.begins_with(x),
+		"phrase": "%s starts with %s", "needs_value": true },
+	ENDS: {
+		"eval": func(v: String, x: String) -> bool: return v.ends_with(x),
+		"phrase": "%s ends with %s", "needs_value": true },
+	CONTAINS: {
+		"eval": func(v: String, x: String) -> bool: return v.contains(x),
+		"phrase": "%s contains %s", "needs_value": true },
+	FIRST_VOWEL: {
+		"eval": func(v: String, _x: String) -> bool: return v.length() > 0 and is_vowel(v[0]),
+		"phrase": "first letter of %s is a vowel", "needs_value": false },
+	LAST_VOWEL: {
+		"eval": func(v: String, _x: String) -> bool: return v.length() > 0 and is_vowel(v[v.length() - 1]),
+		"phrase": "last letter of %s is a vowel", "needs_value": false },
+	FIRST_CONSONANT: {
+		"eval": func(v: String, _x: String) -> bool: return v.length() > 0 and is_consonant(v[0]),
+		"phrase": "first letter of %s is a consonant", "needs_value": false },
+	LAST_CONSONANT: {
+		"eval": func(v: String, _x: String) -> bool: return v.length() > 0 and is_consonant(v[v.length() - 1]),
+		"phrase": "last letter of %s is a consonant", "needs_value": false },
+	EVEN: {
+		"eval": func(v: String, _x: String) -> bool: return v.is_valid_int() and int(v) % 2 == 0,
+		"phrase": "%s is even", "needs_value": false },
+	ODD: {
+		"eval": func(v: String, _x: String) -> bool: return v.is_valid_int() and int(v) % 2 != 0,
+		"phrase": "%s is odd", "needs_value": false },
+}
+
+static func has_op(op: String) -> bool:
+	return OPS.has(op)
+
+static func op_names() -> Array:
+	return OPS.keys()
+
+static func is_vowel(c: String) -> bool:
+	return VOWELS.find(c.to_upper()) >= 0
+
+static func is_consonant(c: String) -> bool:
+	var u := c.to_upper()
+	return u.length() == 1 and u >= "A" and u <= "Z" and not is_vowel(u)
 
 var _modules: Dictionary = {}
 var _order: Array = []
@@ -19,8 +89,8 @@ func clear() -> void:
 	_order.clear()
 
 ## Parse the "modules" object of the manual payload. Validates each control exists, each
-## referenced fact exists, each op is known, and each set-label resolves to a real state.
-## Returns a list of validation errors (empty = ok).
+## referenced fact exists, each op is known, each value-taking op actually got a value, and
+## each set-label resolves to a real state. Returns a list of validation errors (empty = ok).
 func load_modules(modules_dict, controls: ControlStore, facts: FactStore) -> Array:
 	var errors: Array = []
 	for control_id in modules_dict:
@@ -44,8 +114,10 @@ func load_modules(modules_dict, controls: ControlStore, facts: FactStore) -> Arr
 					}
 					if not facts.has(c["fact"]):
 						errors.append("%s branch %d: unknown fact '%s'" % [control_id, bi, c["fact"]])
-					if not KNOWN_OPS.has(c["op"]):
+					if not OPS.has(c["op"]):
 						errors.append("%s branch %d: unknown op '%s'" % [control_id, bi, c["op"]])
+					elif bool(OPS[c["op"]]["needs_value"]) and c["value"] == null:
+						errors.append("%s branch %d: op '%s' needs a 'value'" % [control_id, bi, c["op"]])
 					(branch["when"] as Array).append(c)
 			var idx := controls.label_index(control_id, set_label)
 			if controls.has(control_id) and idx < 0:
@@ -95,44 +167,20 @@ func manual_text(controls: ControlStore) -> String:
 	return "\n".join(lines)
 
 func _eval(cond: Dictionary, fact_val) -> bool:
-	var v := str(fact_val)
+	var op: String = cond["op"]
+	if not OPS.has(op):
+		return false
 	var val = cond["value"]
-	var val_s := str(val) if val != null else ""
-	match cond["op"]:
-		"eq": return v == val_s
-		"neq": return v != val_s
-		"starts": return v.begins_with(val_s)
-		"ends": return v.ends_with(val_s)
-		"contains": return v.contains(val_s)
-		"firstVowel": return v.length() > 0 and _is_vowel(v[0])
-		"lastVowel": return v.length() > 0 and _is_vowel(v[v.length() - 1])
-		"firstConsonant": return v.length() > 0 and _is_consonant(v[0])
-		"lastConsonant": return v.length() > 0 and _is_consonant(v[v.length() - 1])
-		"even": return v.is_valid_int() and int(v) % 2 == 0
-		"odd": return v.is_valid_int() and int(v) % 2 != 0
-	return false
+	return (OPS[op]["eval"] as Callable).call(str(fact_val), str(val) if val != null else "")
 
 func _phrase(cond: Dictionary) -> String:
 	var f: String = cond["fact"]
+	var op: String = cond["op"]
 	var val = cond["value"]
 	var val_s := str(val) if val != null else ""
-	match cond["op"]:
-		"eq": return "%s is %s" % [f, val_s]
-		"neq": return "%s is not %s" % [f, val_s]
-		"starts": return "%s starts with %s" % [f, val_s]
-		"ends": return "%s ends with %s" % [f, val_s]
-		"contains": return "%s contains %s" % [f, val_s]
-		"firstVowel": return "first letter of %s is a vowel" % f
-		"lastVowel": return "last letter of %s is a vowel" % f
-		"firstConsonant": return "first letter of %s is a consonant" % f
-		"lastConsonant": return "last letter of %s is a consonant" % f
-		"even": return "%s is even" % f
-		"odd": return "%s is odd" % f
-	return "%s %s %s" % [f, cond["op"], val_s]
-
-func _is_vowel(c: String) -> bool:
-	return VOWELS.find(c.to_upper()) >= 0
-
-func _is_consonant(c: String) -> bool:
-	var u := c.to_upper()
-	return u.length() == 1 and u >= "A" and u <= "Z" and not _is_vowel(u)
+	if not OPS.has(op):
+		return "%s %s %s" % [f, op, val_s]
+	var spec: Dictionary = OPS[op]
+	if bool(spec["needs_value"]):
+		return (spec["phrase"] as String) % [f, val_s]
+	return (spec["phrase"] as String) % f

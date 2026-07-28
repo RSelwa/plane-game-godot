@@ -44,10 +44,11 @@ func spawn(module_ids: Array, seed_value: int) -> Dictionary:
 		if slot == null:
 			push_error("ModuleSpawner: scene has no marker for slot '%s'" % placement.get("slot_id", ""))
 			continue
-		var scene_path: String = ModuleRegistry.def(module_id).get("scene", "")
-		var node := _instance_into(scene_path, slot)
+		var module_def: Dictionary = ModuleRegistry.def(module_id)
+		var node := _instance_into(module_def.get("scene", ""), slot)
 		if node == null:
 			continue
+		_apply_contract(node, module_id, module_def)
 		_controls[module_id] = node
 
 	for slot_id in layout.get("empty", []):
@@ -57,6 +58,26 @@ func spawn(module_ids: Array, seed_value: int) -> Dictionary:
 
 	modules_spawned.emit(_controls)
 	return _controls
+
+## Push the module's identity and its states from DATA onto the freshly instanced prefab.
+##
+## The prefab must NOT declare them itself. A .tscn stores literal values and cannot
+## reference a script constant (there is no way to write `state_labels = ModuleSwitch.OFF`),
+## so any scene-side copy is a second source of truth that no validator can see:
+## ModuleRegistry.validate() checks the rules against def()["states"], while the brain
+## registers whatever the SCENE carried (flight.gd -> register_control(id, state_labels)).
+## Diverge the two and validate() reports clean while the derive silently misbehaves.
+## Pushing from here makes the module's data file the only place states are written.
+func _apply_contract(node: Node3D, module_id: String, module_def: Dictionary) -> void:
+	if not (node is CockpitControl):
+		push_error("ModuleSpawner: module '%s' root is not a CockpitControl" % module_id)
+		return
+	var states: Array = module_def.get("states", [])
+	if states.size() < 2:
+		push_error("ModuleSpawner: module '%s' declares %d state(s), needs at least 2" % [module_id, states.size()])
+	var control := node as CockpitControl
+	control.control_id = module_id
+	control.state_labels = PackedStringArray(states)
 
 ## Slot markers are matched by node NAME, so the scene and DashboardLayout stay in sync
 ## without a hand-maintained NodePath table.

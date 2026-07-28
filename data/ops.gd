@@ -1,26 +1,26 @@
 class_name CockpitOps
 extends RefCounted
 
-## Condition operators understood by the C# brain (CockpitBrain.Condition.Eval).
-## Declared once here so module rule files never spell an operator by hand.
+## RE-EXPORT ONLY. Condition operator names, so module rule files never spell one by hand.
+##
+## Not a declaration: every value below points at ManualEngine, which is the single owner
+## (name + behaviour + phrasing, all in its OPS table). Change an operator there and this
+## file follows automatically. Content may depend on the engine; never the reverse.
 
-const EQ := "eq"
-const NEQ := "neq"
-const STARTS := "starts"
-const ENDS := "ends"
-const CONTAINS := "contains"
-const FIRST_VOWEL := "firstVowel"
-const LAST_VOWEL := "lastVowel"          # note: Y counts as a vowel
-const FIRST_CONSONANT := "firstConsonant"
-const LAST_CONSONANT := "lastConsonant"
-const EVEN := "even"
-const ODD := "odd"
+const EQ := ManualEngine.EQ
+const NEQ := ManualEngine.NEQ
+const STARTS := ManualEngine.STARTS
+const ENDS := ManualEngine.ENDS
+const CONTAINS := ManualEngine.CONTAINS
+const FIRST_VOWEL := ManualEngine.FIRST_VOWEL
+const LAST_VOWEL := ManualEngine.LAST_VOWEL          # note: Y counts as a vowel
+const FIRST_CONSONANT := ManualEngine.FIRST_CONSONANT
+const LAST_CONSONANT := ManualEngine.LAST_CONSONANT
+const EVEN := ManualEngine.EVEN
+const ODD := ManualEngine.ODD
 
-const ALL := [
-	EQ, NEQ, STARTS, ENDS, CONTAINS,
-	FIRST_VOWEL, LAST_VOWEL, FIRST_CONSONANT, LAST_CONSONANT,
-	EVEN, ODD,
-]
+static func all() -> Array:
+	return ManualEngine.op_names()
 
 static func is_known(op: String) -> bool:
-	return ALL.has(op)
+	return ManualEngine.has_op(op)

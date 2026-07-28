@@ -23,9 +23,9 @@ static func def() -> Dictionary:
 		"zones": [DashboardLayout.ZONE_OVERHEAD, DashboardLayout.ZONE_MAIN],
 		"check": "state_match",
 		"states": [OFF, ON],
-		"facts": [CockpitFacts.WARN],
+		"facts": [CockpitFacts.WARNING_LIGHT],
 		"rules": [
-			{ "when": [ { "fact": CockpitFacts.WARN, "op": CockpitOps.EQ, "value": CockpitFacts.GREEN } ], "set": OFF },
+			{ "when": [ { "fact": CockpitFacts.WARNING_LIGHT, "op": CockpitOps.EQ, "value": CockpitFacts.GREEN } ], "set": OFF },
 			{ "else": ON },
 		],
 	}

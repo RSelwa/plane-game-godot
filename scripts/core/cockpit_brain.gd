@@ -90,7 +90,7 @@ func manual_ok() -> bool:
 
 func _flush_errors() -> void:
 	for err in _manual_errors:
-		push_error("CockpitManual: " + err)
+		push_error("CockpitBrain manual: " + err)
 
 # --- Flight generation ------------------------------------------------------------
 
@@ -138,7 +138,7 @@ static func self_test() -> String:
 	var load_res := c.load_manual_json(manual)
 	c.generate_flight(4821)
 	var ap := c.fact_value("starting_airport")
-	var last_vowel := ap.length() > 0 and "AEIOUY".find(ap[ap.length() - 1].to_upper()) >= 0
+	var last_vowel := ap.length() > 0 and ManualEngine.is_vowel(ap[ap.length() - 1])
 	var fn := c.fact_value("flight_number")
 	var even := fn.is_valid_int() and int(fn) % 2 == 0
 	var expect := 0 if last_vowel else (2 if even else 1)
@@ -153,5 +153,30 @@ static func self_test() -> String:
 	log.append("validation caught bad control=%s %s" % [caught, "OK" if caught else "FAIL"])
 	bad.free()
 
-	var all_ok := v1 and v2 and v3 and deriv and caught
+	# Every operator in ManualEngine.OPS must be fully declared: an eval Callable, a phrase
+	# whose placeholder count matches needs_value, and a working evaluation. Without this,
+	# adding a table entry with a typo'd field would only surface as a wrong required state
+	# in some future round.
+	var ops_ok := true
+	var ops_bad: Array = []
+	for op_name in ManualEngine.op_names():
+		var spec = ManualEngine.OPS[op_name]
+		var needs_value: bool = bool(spec.get("needs_value", false))
+		var phrase: String = str(spec.get("phrase", ""))
+		var holes := phrase.count("%s")
+		var shaped: bool = (spec.get("eval") is Callable) \
+			and holes == (2 if needs_value else 1)
+		var runs := false
+		if spec.get("eval") is Callable:
+			var out = (spec["eval"] as Callable).call("BCN", "BCN")
+			runs = out is bool
+		if not (shaped and runs):
+			ops_ok = false
+			ops_bad.append(str(op_name))
+	log.append("ops table (%d ops)%s %s" % [
+		ManualEngine.op_names().size(),
+		"" if ops_ok else " bad=" + str(ops_bad),
+		"OK" if ops_ok else "FAIL"])
+
+	var all_ok := v1 and v2 and v3 and deriv and caught and ops_ok
 	return ("SELFTEST PASS :: " if all_ok else "SELFTEST FAIL :: ") + " | ".join(log)

@@ -22,11 +22,11 @@ static func def() -> Dictionary:
 		"zones": [DashboardLayout.ZONE_MAIN],   # a gear lever overhead would read as nonsense
 		"check": "state_match",
 		"states": [UP, CENTER, DOWN],
-		"facts": [CockpitFacts.STARTING_AIRPORT, CockpitFacts.ARRIVING_AIRPORT, CockpitFacts.WARN],
+		"facts": [CockpitFacts.STARTING_AIRPORT, CockpitFacts.ARRIVING_AIRPORT, CockpitFacts.WARNING_LIGHT],
 		"rules": [
 			{ "when": [ { "fact": CockpitFacts.STARTING_AIRPORT, "op": CockpitOps.LAST_VOWEL } ], "set": UP },
 			{ "when": [ { "fact": CockpitFacts.ARRIVING_AIRPORT, "op": CockpitOps.FIRST_CONSONANT } ], "set": CENTER },
-			{ "when": [ { "fact": CockpitFacts.WARN, "op": CockpitOps.EQ, "value": CockpitFacts.RED } ], "set": DOWN },
+			{ "when": [ { "fact": CockpitFacts.WARNING_LIGHT, "op": CockpitOps.EQ, "value": CockpitFacts.RED } ], "set": DOWN },
 			{ "else": UP },
 		],
 	}

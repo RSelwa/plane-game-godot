@@ -7,8 +7,6 @@ extends Node
 const MAIN_MENU := "res://scenes/main_menu.tscn"
 ## The mission-driven cockpit (campaign mission + spawned modules + focus camera).
 const COCKPIT := "res://scenes/flight.tscn"
-## The original fixed three-control prototype, kept until flight.tscn is proven.
-const COCKPIT_LEGACY := "res://scenes/cockpit.tscn"
 const SETTINGS := "res://scenes/settings.tscn"
 const ROUND_RECAP := "res://scenes/round_recap.tscn"
 

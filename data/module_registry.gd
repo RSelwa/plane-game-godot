@@ -57,8 +57,16 @@ static func build_manual_data(module_ids: Array) -> Dictionary:
 ## Static sanity pass over every registered module: catches a typo'd fact, an unknown
 ## operator, or a rule setting a state the module does not declare. Returns an empty
 ## array when the registry is clean. Cheap enough to run on load.
+##
+## Also guards the two things that CANNOT be reduced to a single declaration by the language
+## and so have to be kept honest by a check instead:
+##   - a prefab re-declaring control_id / state_labels (a .tscn stores literals, it cannot
+##     reference a constant), which would silently shadow the data file
+##   - a fact id drifting off snake_case, the convention the id strings share with control /
+##     module / mission / mode ids
 static func validate() -> Array:
 	var errors: Array = []
+	errors.append_array(_validate_fact_id_convention())
 	for id in defs():
 		var d: Dictionary = def(id)
 		if d.get("id", "") != id:
@@ -66,6 +74,7 @@ static func validate() -> Array:
 		var states: Array = d.get("states", [])
 		if states.size() < 2:
 			errors.append("module '%s': needs at least 2 states" % id)
+		errors.append_array(_validate_prefab_declares_nothing(id, d))
 		for fact_id in d.get("facts", []):
 			if not CockpitFacts.has(fact_id):
 				errors.append("module '%s': unknown fact '%s'" % [id, fact_id])
@@ -90,4 +99,43 @@ static func validate() -> Array:
 			branch += 1
 		if not has_else:
 			errors.append("module '%s': decision list has no final 'else' default" % id)
+	return errors
+
+## A module's prefab must leave control_id and state_labels EMPTY: ModuleSpawner pushes both
+## from def() at spawn time. A prefab that fills them in is a second source of truth the
+## other checks here cannot see — they validate the rules against def()["states"], while the
+## brain would be registering whatever the scene carried.
+static func _validate_prefab_declares_nothing(id: String, d: Dictionary) -> Array:
+	var errors: Array = []
+	var scene_path: String = d.get("scene", "")
+	if scene_path.is_empty() or not ResourceLoader.exists(scene_path):
+		errors.append("module '%s': missing scene '%s'" % [id, scene_path])
+		return errors
+	var packed: PackedScene = load(scene_path)
+	if packed == null:
+		errors.append("module '%s': could not load '%s'" % [id, scene_path])
+		return errors
+	var probe := packed.instantiate()
+	if probe is CockpitControl:
+		var control := probe as CockpitControl
+		if not control.control_id.is_empty():
+			errors.append("module '%s': prefab hardcodes control_id '%s' — remove it, the spawner pushes it" % [id, control.control_id])
+		if control.state_labels.size() > 0:
+			errors.append("module '%s': prefab hardcodes state_labels %s — remove it, the spawner pushes def().states" % [id, str(control.state_labels)])
+	else:
+		errors.append("module '%s': prefab root is not a CockpitControl" % id)
+	probe.free()
+	return errors
+
+## Fact id STRINGS share one convention with control / module / mission / mode ids:
+## lowercase snake_case. The constant naming them stays SCREAMING_CASE.
+static func _validate_fact_id_convention() -> Array:
+	var errors: Array = []
+	var allowed := "abcdefghijklmnopqrstuvwxyz0123456789_"
+	for fact_id in CockpitFacts.ids():
+		var s := str(fact_id)
+		for i in s.length():
+			if allowed.find(s[i]) < 0:
+				errors.append("fact '%s': id must be lowercase snake_case" % s)
+				break
 	return errors

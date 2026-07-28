@@ -9,8 +9,13 @@ class_name CockpitControl
 
 signal cycle_requested(id: String)
 
-@export var control_id: String = "control"
-@export var state_labels: PackedStringArray = PackedStringArray(["OFF", "ON"])
+## Identity and states are NOT authored here or in the prefab — ModuleSpawner pushes them
+## from the module's data file at spawn time, which keeps data/modules/<id>.gd the only place
+## they are written. Defaults are deliberately EMPTY so a module that was never pushed fails
+## loudly (the brain rejects an unknown control id) instead of silently behaving like a
+## two-state OFF/ON switch.
+@export var control_id: String = ""
+@export var state_labels: PackedStringArray = PackedStringArray()
 @export var handle_path: NodePath
 @export var min_angle_deg: float = -35.0
 @export var max_angle_deg: float = 35.0
