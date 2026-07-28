@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/cockpit_manager.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/cockpit_control.gd" id="2"]
-[ext_resource type="Script" path="res://scripts/core/CockpitBrain.cs" id="3"]
+[ext_resource type="Script" path="res://scripts/core/cockpit_brain.gd" id="3"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_click"]
 size = Vector3(0.32, 0.4, 0.32)

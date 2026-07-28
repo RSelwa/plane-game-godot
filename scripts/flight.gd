@@ -61,7 +61,7 @@ func _ready() -> void:
 
 	_build_dashboard()
 	_load_manual()
-	_brain.GenerateFlight(_seed)
+	_brain.generate_flight(_seed)
 
 	var land_btn := get_node_or_null(land_button_path)
 	if land_btn != null and not land_btn.pressed.is_connected(_on_land_pressed):
@@ -96,21 +96,21 @@ func _build_dashboard() -> void:
 	var focus_slots: Array = []
 	for module_id in _controls:
 		var control: CockpitControl = _controls[module_id]
-		_brain.RegisterControl(module_id, control.state_labels)
+		_brain.register_control(module_id, control.state_labels)
 		if not control.cycle_requested.is_connected(_on_cycle_requested):
 			control.cycle_requested.connect(_on_cycle_requested)
-		control.apply_state(_brain.GetState(module_id))
+		control.apply_state(_brain.get_state(module_id))
 		var slot := control.get_parent()
 		if slot is Node3D:
 			focus_slots.append(slot)
-	if not _brain.is_connected("StateChanged", _on_state_changed):
-		_brain.connect("StateChanged", _on_state_changed)
+	if not _brain.is_connected("state_changed", _on_state_changed):
+		_brain.connect("state_changed", _on_state_changed)
 	if _camera != null:
 		_camera.set_focus_targets(focus_slots)
 
 func _load_manual() -> void:
 	var payload := ModuleRegistry.build_manual_data(_mission.get("modules", []))
-	var res: String = _brain.LoadManualJson(JSON.stringify(payload))
+	var res: String = _brain.load_manual_json(JSON.stringify(payload))
 	if res != "OK":
 		push_error("FlightRound: manual load failed: %s" % res)
 
@@ -124,7 +124,7 @@ func _process(delta: float) -> void:
 
 func _on_cycle_requested(id: String) -> void:
 	if _playing:
-		_brain.RequestCycle(id)
+		_brain.request_cycle(id)
 
 func _on_state_changed(id: String, state: int) -> void:
 	if _controls.has(id):
@@ -137,7 +137,7 @@ func _on_land_pressed() -> void:
 
 ## LAND has three outcomes: LANDED, GO_AROUND (wrong, lives remain), CRASHED.
 func _attempt_land() -> void:
-	if _brain.IsValid():
+	if _brain.is_valid():
 		_finish(true, "")
 		return
 	_lives -= 1
@@ -158,7 +158,7 @@ func _go_around_text() -> String:
 func _wrong_count() -> int:
 	var wrong := 0
 	for id in _controls:
-		if _brain.HasRequired(id) and _brain.GetState(id) != _brain.RequiredState(id):
+		if _brain.has_required(id) and _brain.get_state(id) != _brain.required_state(id):
 			wrong += 1
 	return wrong
 
@@ -182,13 +182,13 @@ func _finish(success: bool, reason: String) -> void:
 func _debrief_rows() -> Array:
 	var rows: Array = []
 	for id in _controls:
-		var have: int = _brain.GetState(id)
-		var needs_it: bool = _brain.HasRequired(id)
+		var have: int = _brain.get_state(id)
+		var needs_it: bool = _brain.has_required(id)
 		rows.append({
 			"id": id,
-			"you": _brain.StateLabel(id, have),
-			"need": _brain.StateLabel(id, _brain.RequiredState(id)) if needs_it else "any",
-			"ok": (not needs_it) or have == _brain.RequiredState(id),
+			"you": _brain.state_label(id, have),
+			"need": _brain.state_label(id, _brain.required_state(id)) if needs_it else "any",
+			"ok": (not needs_it) or have == _brain.required_state(id),
 		})
 	return rows
 
@@ -204,18 +204,18 @@ func _refresh_all() -> void:
 func _refresh_manual() -> void:
 	var lbl := get_node_or_null(manual_label_path)
 	if lbl != null:
-		lbl.text = "TOWER MANUAL\n" + _brain.ManualText()
+		lbl.text = "TOWER MANUAL\n" + _brain.manual_text()
 
 func _refresh_status() -> void:
 	var lbl := get_node_or_null(status_label_path)
 	if lbl == null:
 		return
 	var facts: Array[String] = []
-	for fid in _brain.FactIds():
-		facts.append("  %s: %s" % [fid, _brain.FactValue(fid)])
+	for fid in _brain.fact_ids():
+		facts.append("  %s: %s" % [fid, _brain.fact_value(fid)])
 	var rows: Array[String] = []
 	for id in _controls:
-		rows.append("  %s: %s" % [id, _brain.StateLabel(id, _brain.GetState(id))])
+		rows.append("  %s: %s" % [id, _brain.state_label(id, _brain.get_state(id))])
 	lbl.text = "FLIGHT (read to tower):\n" + "\n".join(facts) + "\n\nCOCKPIT:\n" + "\n".join(rows)
 
 func _refresh_timer() -> void:

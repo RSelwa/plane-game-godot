@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://ccflight01"]
 
 [ext_resource type="Script" path="res://scripts/flight.gd" id="1"]
-[ext_resource type="Script" path="res://scripts/core/CockpitBrain.cs" id="2"]
+[ext_resource type="Script" path="res://scripts/core/cockpit_brain.gd" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/dashboard.tscn" id="3"]
 [ext_resource type="Script" path="res://scripts/camera_rig.gd" id="4"]
 
