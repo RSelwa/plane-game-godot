@@ -1,6 +1,7 @@
-[gd_scene load_steps=4 format=3 uid="uid://rfe1yvgd3xty"]
+[gd_scene format=3 uid="uid://rfe1yvgd3xty"]
 
 [ext_resource type="PackedScene" uid="uid://ctd0l41waa8ba" path="res://models/modules/password.glb" id="1_5ja4v"]
+[ext_resource type="Script" uid="uid://c5goyvdqbcuax" path="res://scenes/modules/airport_code.gd" id="1_xd43o"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_btn"]
 size = Vector3(0.04, 0.05, 0.05)
@@ -8,50 +9,51 @@ size = Vector3(0.04, 0.05, 0.05)
 [sub_resource type="BoxShape3D" id="BoxShape3D_submit"]
 size = Vector3(0.06, 0.05, 0.14)
 
-[node name="AirportCode" type="Node3D"]
+[node name="AirportCode" type="Node3D" unique_id=2136448560]
+script = ExtResource("1_xd43o")
 
-[node name="Model" parent="." instance=ExtResource("1_5ja4v")]
+[node name="Model" parent="." unique_id=1753796133 instance=ExtResource("1_5ja4v")]
 
-[node name="Buttons" type="Node3D" parent="."]
+[node name="Buttons" type="Node3D" parent="." unique_id=1385910433]
 
-[node name="Digit1Minus" type="StaticBody3D" parent="Buttons"]
+[node name="Digit1Minus" type="StaticBody3D" parent="Buttons" unique_id=1237011941]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.08, 0.1, -0.1)
 
-[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit1Minus"]
+[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit1Minus" unique_id=520598935]
 shape = SubResource("BoxShape3D_btn")
 
-[node name="Digit1Plus" type="StaticBody3D" parent="Buttons"]
+[node name="Digit1Plus" type="StaticBody3D" parent="Buttons" unique_id=520227903]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.131, 0.1, -0.1)
 
-[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit1Plus"]
+[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit1Plus" unique_id=875893389]
 shape = SubResource("BoxShape3D_btn")
 
-[node name="Digit2Minus" type="StaticBody3D" parent="Buttons"]
+[node name="Digit2Minus" type="StaticBody3D" parent="Buttons" unique_id=50096278]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.08, 0.1, 0)
 
-[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit2Minus"]
+[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit2Minus" unique_id=845329053]
 shape = SubResource("BoxShape3D_btn")
 
-[node name="Digit2Plus" type="StaticBody3D" parent="Buttons"]
+[node name="Digit2Plus" type="StaticBody3D" parent="Buttons" unique_id=734243538]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.131, 0.1, 0)
 
-[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit2Plus"]
+[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit2Plus" unique_id=1756624905]
 shape = SubResource("BoxShape3D_btn")
 
-[node name="Digit3Minus" type="StaticBody3D" parent="Buttons"]
+[node name="Digit3Minus" type="StaticBody3D" parent="Buttons" unique_id=1978791449]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.08, 0.1, 0.1)
 
-[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit3Minus"]
+[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit3Minus" unique_id=579784076]
 shape = SubResource("BoxShape3D_btn")
 
-[node name="Digit3Plus" type="StaticBody3D" parent="Buttons"]
+[node name="Digit3Plus" type="StaticBody3D" parent="Buttons" unique_id=1635843771]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.131, 0.1, 0.1)
 
-[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit3Plus"]
+[node name="Collision" type="CollisionShape3D" parent="Buttons/Digit3Plus" unique_id=1324927800]
 shape = SubResource("BoxShape3D_btn")
 
-[node name="Submit" type="StaticBody3D" parent="."]
+[node name="Submit" type="StaticBody3D" parent="." unique_id=1193419583]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.133, 0.102, 0)
 
-[node name="Collision" type="CollisionShape3D" parent="Submit"]
+[node name="Collision" type="CollisionShape3D" parent="Submit" unique_id=548094264]
 shape = SubResource("BoxShape3D_submit")
