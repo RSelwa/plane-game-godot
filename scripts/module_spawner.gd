@@ -62,7 +62,7 @@ func spawn(module_ids: Array, seed_value: int) -> Dictionary:
 ## Push the module's identity and its states from DATA onto the freshly instanced prefab.
 ##
 ## The prefab must NOT declare them itself. A .tscn stores literal values and cannot
-## reference a script constant (there is no way to write `state_labels = ModuleSwitch.OFF`),
+## reference a script constant (there is no way to write `state_labels = SomeModule.STATE`),
 ## so any scene-side copy is a second source of truth that no validator can see:
 ## ModuleRegistry.validate() checks the rules against def()["states"], while the brain
 ## registers whatever the SCENE carried (flight.gd -> register_control(id, state_labels)).

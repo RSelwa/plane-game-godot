@@ -16,7 +16,6 @@ timer_label_path = NodePath("UI/Timer")
 lives_label_path = NodePath("UI/Lives")
 message_label_path = NodePath("UI/Message")
 land_button_path = NodePath("UI/LandButton")
-mission_index = 1
 mode_id = "standard"
 fixed_seed = 0
 

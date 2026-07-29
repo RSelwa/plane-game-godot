@@ -1,7 +1,7 @@
 extends Node3D
 class_name FlightRound
 
-## Runs one MISSION: picks the mission from the campaign, spawns exactly its modules onto
+## Runs one ROUND: resolves the round's module list, spawns exactly those modules onto
 ## the dashboard, derives the required config through the brain, and validates on LAND.
 ##
 ## Difficulty is the mission's own two knobs (which module types, how many) plus the mode's
@@ -20,9 +20,6 @@ class_name FlightRound
 @export var lives_label_path: NodePath
 @export var message_label_path: NodePath
 @export var land_button_path: NodePath
-## Index into CockpitCampaign.missions(). -1 uses mission_id instead.
-@export var mission_index: int = 1
-@export var mission_id: String = ""
 @export var mode_id: String = CockpitModes.STANDARD
 ## 0 rolls a fresh seed; anything else reproduces that exact flight (facts AND layout).
 @export var fixed_seed: int = 0
@@ -73,16 +70,12 @@ func _ready() -> void:
 	_refresh_all()
 
 func _resolve_mission() -> Dictionary:
-	if not mission_id.is_empty():
-		return CockpitCampaign.mission(mission_id)
-	return CockpitCampaign.mission_at(mission_index)
+	return {}
 
 ## Surface data problems loudly at startup rather than as a silently-wrong round.
 func _report_data_errors() -> void:
 	for err in ModuleRegistry.validate():
 		push_error("ModuleRegistry: " + err)
-	for err in CockpitCampaign.validate():
-		push_error("CockpitCampaign: " + err)
 	for err in DashboardLayout.validate():
 		push_error("DashboardLayout: " + err)
 	for err in _spawner.validate_scene():

@@ -19,7 +19,6 @@ func _initialize() -> void:
 
 	for pair in [
 		["ModuleRegistry", ModuleRegistry.validate()],
-		["CockpitCampaign", CockpitCampaign.validate()],
 		["DashboardLayout", DashboardLayout.validate()],
 	]:
 		var label: String = pair[0]

@@ -3,21 +3,17 @@ extends RefCounted
 
 ## THE MODULE REGISTRY — the one place that knows every module type exists.
 ##
-## A mission (see CockpitCampaign) names module ids and nothing else; the registry
-## resolves an id to its full definition. Adding a module type = add a file under
-## data/modules/ and one line in defs(). Nothing else in the game changes.
+## A round names module ids and nothing else; the registry resolves an id to its full
+## definition. Adding a module type = add a file under data/modules/ and one line in defs().
+## Nothing else in the game changes.
 ##
-## build_manual_data() is the bridge to the C# brain: it turns a mission's module list
-## into exactly the { "facts": [...], "modules": {...} } shape CockpitBrain.LoadManualJson
+## build_manual_data() is the bridge to the brain: it turns a round's module list into
+## exactly the { "facts": [...], "modules": {...} } shape CockpitBrain.load_manual_json
 ## already eats, with the fact set narrowed to the union of what those modules read.
 
 ## Every registered module type, keyed by id.
 static func defs() -> Dictionary:
-	return {
-		ModuleSwitch.ID: ModuleSwitch.def(),
-		ModuleDial.ID: ModuleDial.def(),
-		ModuleLever.ID: ModuleLever.def(),
-	}
+	return {}
 
 static func ids() -> Array:
 	return defs().keys()

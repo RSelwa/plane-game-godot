@@ -5,6 +5,13 @@
 
 Dernière mise à jour : session du 29/07/2026.
 
+**Cette session :** switch/dial/lever et `data/campaign.gd` **supprimés** ; registry vide ; projet
+non-runnable jusqu'à ce qu'`airport_code` soit enregistré. Le modèle de pick est décidé : **Modèle B**
+(edgework par instance, manuel générique fixe par type, ids d'instance — spec dans `CLAUDE.md`,
+« Module instances & per-instance edgework »). Conséquence pour le module ci-dessous : le **nombre de
+molettes 3–6 devient de l'edgework tiré par instance**, plus une constante fixe, et le manuel porte
+lui-même les conditions (`si 3 molettes → …, sinon 6 → …`).
+
 ---
 
 ## Chantier : module AIRPORT CODE (molettes de lettres, type Password de KTANE)
@@ -24,7 +31,7 @@ contenu** (les autres lisent un fact et appliquent une règle).
 - `scenes/modules/airport_code.gd` — script vide (stub généré par Godot)
 - `data/facts.gd` — `AIRPORTS` est devenu une liste d'objets `{code, name}` + `AIRPORT_KEY`,
   `airport_codes()` (ce que consommera le générateur), `airport_name(code)` (pour l'affichage)
-- `scripts/flight.gd:219` — la seed s'affiche dans le Label `UI/Status`
+- `scripts/flight.gd:212` — la seed s'affiche dans le Label `UI/Status`
 
 ### Pas fait
 
@@ -75,7 +82,7 @@ solution sur le mur. Le module a donc sa **propre** cible, tirée de la seed. Un
 
 ### Blocages connus
 
-- **`flight.gd:98`** — `var control: CockpitControl = _controls[module_id]` exige que la racine du
+- **`flight.gd:91`** — `var control: CockpitControl = _controls[module_id]` exige que la racine du
   prefab soit un `CockpitControl`. Celle de `airport_code.tscn` est un `Node3D`. Et plus
   profondément : 1 `CockpitControl` = 1 control, or ce module en contient **3** (les molettes).
   Le contrat spawner→brain doit gérer « 1 module = N controls ». **Tant que l'id n'est pas dans
@@ -95,18 +102,21 @@ solution sur le mur. Le module a donc sa **propre** cible, tirée de la seed. Un
 Décidé cette session, **rien écrit**. La spec complète est dans `CLAUDE.md`, section
 « Round = parameters + a seed ». Résumé de ce qu'il reste à faire :
 
-1. écrire `data/mission_gen.gd` : `generate(seed, params) -> {time, lives, modules[]}`
-2. ajouter le seuil d'apparition (`difficulty`) dans les 3 fiches modules existantes
-3. `flight.gd` : les params remplacent `mission_index` / `mission_id`
-4. supprimer `data/campaign.gd` (marqué LEGACY dans `CLAUDE.md`, encore présent et encore utilisé
-   par `flight.gd:77-78` et `flight.gd:84`)
+1. écrire `data/mission_gen.gd` : `generate(seed, params) -> {time, lives, modules[]}` ; pioche des
+   **instances** (doublons autorisés, `max_instances` respecté) — pas un type par slot
+2. ajouter le seuil d'apparition (`difficulty`) + `max_instances` dans la fiche d'`airport_code`
+   (seul type prévu ; les 3 placeholders sont supprimés)
+
+FAIT cette session : `data/campaign.gd` supprimé, et `flight.gd` ne référence plus
+`mission_index` / `mission_id` (`_resolve_mission()` retourne `{}` en attendant le générateur ;
+`CockpitCampaign.validate()` retiré de `_report_data_errors`).
 
 ---
 
 ## Panneau debug
 
 Pas encore construit. Ce qui existe déjà et sert de panneau debug : le Label `UI/Status` dans
-`scenes/flight.tscn`, rempli par `scripts/flight.gd:209` `_refresh_status()` — il liste la seed,
+`scenes/flight.tscn`, rempli par `scripts/flight.gd:202` `_refresh_status()` — il liste la seed,
 les facts et l'état de chaque control.
 
 Prévu : un panneau séparé, **caché par défaut**, basculé par F3. Contenu : seed, params, molettes
