@@ -29,7 +29,10 @@ var _spawner: ModuleSpawner
 var _camera: CockpitCameraRig
 
 var _mission: Mission = null
-var _controls: Dictionary = {}          # module id -> CockpitControl
+## Un module peut porter PLUSIEURS controls (un module à molettes en a un par molette), donc
+## deux tables au lieu d'une : ce qui a été spawné, et qui dessine quoi.
+var _modules: Dictionary = {}           # module id -> le nœud spawné (Node3D)
+var _control_owner: Dictionary = {}     # control id -> le nœud qui le DESSINE
 var _lives := 1
 var _time_left := 0.0
 var _playing := false
@@ -59,6 +62,7 @@ func _ready() -> void:
 	_build_dashboard()
 	_load_manual()
 	_brain.generate_flight(_seed)
+	_apply_module_answers()
 
 	var land_btn := get_node_or_null(land_button_path)
 	if land_btn != null and not land_btn.pressed.is_connected(_on_land_pressed):
@@ -86,21 +90,78 @@ func _report_data_errors() -> void:
 ## slots are focusable. Registration MUST happen before the manual loads so the brain can
 ## resolve state labels and validate the rules against real controls.
 func _build_dashboard() -> void:
-	_controls = _spawner.spawn(_mission.modules, _seed)
+	_modules = _spawner.spawn(_mission.modules, _seed)
+	_control_owner.clear()
+	## UN SEUL flux rng pour tout le tableau de bord : chaque instance avance le flux, donc deux
+	## instances du même type tirent des plateaux différents, et la seed reproduit l'ensemble.
+	var rng := RandomNumberGenerator.new()
+	rng.seed = _seed
 	var focus_slots: Array = []
-	for module_id in _controls:
-		var control: CockpitControl = _controls[module_id]
-		_brain.register_control(module_id, control.state_labels)
-		if not control.cycle_requested.is_connected(_on_cycle_requested):
-			control.cycle_requested.connect(_on_cycle_requested)
-		control.apply_state(_brain.get_state(module_id))
-		var slot := control.get_parent()
+	for module_id in _modules:
+		var node: Node3D = _modules[module_id]
+		## 2e argument = l'id de TYPE. Identique à l'id d'instance jusqu'à mission_gen.
+		_brain.register_module(module_id, module_id)
+		var d := ModuleRegistry.def(module_id)
+		if d.get("kind", ModuleRegistry.KIND_STATES) == ModuleRegistry.KIND_WHEELS:
+			_register_wheels_module(module_id, node, rng)
+		else:
+			_register_control_module(module_id, node)
+		var slot := node.get_parent()
 		if slot is Node3D:
 			focus_slots.append(slot)
 	if not _brain.is_connected("state_changed", _on_state_changed):
 		_brain.connect("state_changed", _on_state_changed)
 	if _camera != null:
 		_camera.set_focus_targets(focus_slots)
+
+## Module à état unique : le prefab EST le control, son id est celui du module.
+func _register_control_module(module_id: String, node: Node3D) -> void:
+	var control := node as CockpitControl
+	if control == null:
+		push_error("FlightRound: module '%s' root is not a CockpitControl" % module_id)
+		return
+	_brain.register_control(module_id, control.state_labels)
+	_brain.set_module_controls(module_id, [module_id])
+	_control_owner[module_id] = control
+	if not control.cycle_requested.is_connected(_on_cycle_requested):
+		control.cycle_requested.connect(_on_cycle_requested)
+	control.apply_state(_brain.get_state(module_id))
+
+## Module à molettes : UN control par molette, dont les ÉTATS sont les lettres tirées de la
+## seed. C'est ici que « 1 module = N controls » se produit réellement.
+func _register_wheels_module(module_id: String, node: Node3D, rng: RandomNumberGenerator) -> void:
+	var board := ModuleRegistry.roll_edgework(module_id, rng)
+	if board.is_empty():
+		push_error("FlightRound: module '%s' produced no board" % module_id)
+		return
+	_brain.set_module_edgework(module_id, board)
+	var wheels: Array = board["wheels"]
+	var start: Array = board["start"]
+	var ids: Array[String] = []
+	for i in wheels.size():
+		var cid := ModuleRegistry.wheel_control_id(module_id, i)
+		_brain.register_control(cid, wheels[i])
+		_control_owner[cid] = node
+		ids.append(cid)
+	_brain.set_module_controls(module_id, ids)
+	## La vue ne reçoit QUE ce que le pilote peut voir : les lettres. `target` / `target_index`
+	## restent dans le brain — en multijoueur la vue sera côté client, donc trichable.
+	if node.has_method("bind_wheels"):
+		node.bind_wheels(ids, wheels)
+	if node.has_signal("cycle_requested") and not node.cycle_requested.is_connected(_on_cycle_requested):
+		node.cycle_requested.connect(_on_cycle_requested)
+	## Rotation de départ posée APRÈS le bind, pour que la vue reçoive bien le signal.
+	for i in ids.size():
+		_brain.set_state(ids[i], int(start[i]))
+
+## Les réponses des modules générés, posées APRÈS generate_flight — lui appelle clear_required()
+## et effacerait tout ce qui aurait été posé avant.
+func _apply_module_answers() -> void:
+	for module_id in _modules:
+		var board: Dictionary = _brain.module_edgework(module_id)
+		var target_index: Array = board.get("target_index", [])
+		for i in target_index.size():
+			_brain.set_required(ModuleRegistry.wheel_control_id(module_id, i), int(target_index[i]))
 
 func _load_manual() -> void:
 	var payload := ModuleRegistry.build_manual_data(_mission.modules)
@@ -116,13 +177,19 @@ func _process(delta: float) -> void:
 	if _time_left <= 0.0:
 		_finish(false, "TIME UP")
 
-func _on_cycle_requested(id: String) -> void:
+func _on_cycle_requested(id: String, step: int) -> void:
 	if _playing:
-		_brain.request_cycle(id)
+		_brain.request_cycle(id, step)
 
+## Le brain a changé un état : on le fait dessiner par le nœud qui possède ce control. Un
+## module à molettes reçoit l'id du control, sinon il ne saurait pas QUELLE molette redessiner.
 func _on_state_changed(id: String, state: int) -> void:
-	if _controls.has(id):
-		_controls[id].apply_state(state)
+	if _control_owner.has(id):
+		var view = _control_owner[id]
+		if view.has_method("apply_control_state"):
+			view.apply_control_state(id, state)
+		elif view is CockpitControl:
+			(view as CockpitControl).apply_state(state)
 	_refresh_status()
 
 func _on_land_pressed() -> void:
@@ -151,7 +218,7 @@ func _go_around_text() -> String:
 
 func _wrong_count() -> int:
 	var wrong := 0
-	for id in _controls:
+	for id in _control_owner:
 		if _brain.has_required(id) and _brain.get_state(id) != _brain.required_state(id):
 			wrong += 1
 	return wrong
@@ -175,7 +242,7 @@ func _finish(success: bool, reason: String) -> void:
 ## learning happens and it costs nothing.
 func _debrief_rows() -> Array:
 	var rows: Array = []
-	for id in _controls:
+	for id in _control_owner:
 		var have: int = _brain.get_state(id)
 		var needs_it: bool = _brain.has_required(id)
 		rows.append({
@@ -208,7 +275,7 @@ func _refresh_status() -> void:
 	for fid in _brain.fact_ids():
 		facts.append("  %s: %s" % [fid, _brain.fact_value(fid)])
 	var rows: Array[String] = []
-	for id in _controls:
+	for id in _control_owner:
 		rows.append("  %s: %s" % [id, _brain.state_label(id, _brain.get_state(id))])
 	lbl.text = "SEED: %d\n\nFLIGHT (read to tower):\n" % _seed + "\n".join(facts) + "\n\nCOCKPIT:\n" + "\n".join(rows)
 	

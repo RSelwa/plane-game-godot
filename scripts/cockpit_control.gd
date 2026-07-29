@@ -7,7 +7,10 @@ class_name CockpitControl
 ## via `apply_state`. Keeping the visual a pure function of state means any peer
 ## (later, in multiplayer) can render it from replicated state.
 
-signal cycle_requested(id: String)
+## `step` est toujours +1 ici : un interrupteur ne tourne que dans un sens. Le paramètre existe
+## pour que TOUS les controls émettent la même forme de signal — une molette de lettres a un
+## bouton − autant qu'un +, et le round ne veut pas deux handlers pour la même intention.
+signal cycle_requested(id: String, step: int)
 
 ## Identity and states are NOT authored here or in the prefab — ModuleSpawner pushes them
 ## from the module's data file at spawn time, which keeps data/modules/<id>.gd the only place
@@ -25,7 +28,7 @@ func _ready() -> void:
 
 func _on_input_event(_camera: Node, event: InputEvent, _pos: Vector3, _normal: Vector3, _shape: int) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		cycle_requested.emit(control_id)
+		cycle_requested.emit(control_id, 1)
 
 ## Draw the given canonical state. Called by the manager after the brain updates.
 func apply_state(state: int) -> void:
