@@ -9,10 +9,12 @@ class_name CockpitBrain
 ## Round flow: register controls -> load_manual_json(...) -> generate_flight(seed).
 
 signal state_changed(id: String, state: int)
+signal module_status_changed(module_id: String, status)
 
 var _controls := ControlStore.new()
 var _facts := FactStore.new()
 var _manual := ManualEngine.new()
+var _modules := ModuleStore.new()
 var _manual_errors: Array = []
 
 # --- Controls (delegate to ControlStore) -----------------------------------------
@@ -58,6 +60,33 @@ func required_state(id: String) -> int:
 func is_valid() -> bool:
 	return _controls.is_valid()
 
+# --- Modules (delegate to ModuleStore) --------------------------------------------
+
+func register_module(module_id: String, type: String) -> void:
+	_modules.register(module_id, type)
+
+func module_type(module_id: String) -> String:
+	return _modules.module_type(module_id)
+
+## Module ids in flight order.
+func module_ids() -> Array:
+	return _modules.ids()
+
+## null = untried, ModuleStore.WRONG, or ModuleStore.CORRECT.
+func module_status(module_id: String):
+	return _modules.status(module_id)
+
+func mark_module(module_id: String, status: String) -> void:
+	_modules.set_status(module_id, status)
+	module_status_changed.emit(module_id, status)
+
+func reset_module(module_id: String) -> void:
+	_modules.reset(module_id)
+	module_status_changed.emit(module_id, null)
+
+func module_correct(module_id: String) -> bool:
+	return _modules.is_correct(module_id)
+
 # --- Facts (delegate to FactStore) ------------------------------------------------
 
 func fact_ids() -> Array:
@@ -99,6 +128,7 @@ func _flush_errors() -> void:
 func generate_flight(seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
+	_modules.clear()
 	_facts.roll(rng)
 	_controls.clear_required()
 	var required := _manual.derive(_facts)
@@ -178,5 +208,21 @@ static func self_test() -> String:
 		"" if ops_ok else " bad=" + str(ops_bad),
 		"OK" if ops_ok else "FAIL"])
 
-	var all_ok := v1 and v2 and v3 and deriv and caught and ops_ok
+	var m := CockpitBrain.new()
+	var s_before = m.module_status("ac")           # unregistered -> null
+	m.register_module("ac", "airport_code")
+	var s0 = m.module_status("ac")                 # registered, untried -> null
+	var t_ok := m.module_type("ac") == "airport_code" and m.module_ids() == ["ac"]
+	m.mark_module("ac", ModuleStore.WRONG)
+	var s1 = m.module_status("ac")                 # "false"
+	m.mark_module("ac", ModuleStore.CORRECT)
+	var s2 = m.module_status("ac")                 # "correct"
+	var c_ok := m.module_correct("ac")
+	m.reset_module("ac")
+	var s3 = m.module_status("ac")                 # untried again -> null
+	var status_ok := s_before == null and s0 == null and t_ok and s1 == ModuleStore.WRONG and s2 == ModuleStore.CORRECT and c_ok and s3 == null
+	log.append("module status %s" % ["OK" if status_ok else "FAIL"])
+	m.free()
+
+	var all_ok := v1 and v2 and v3 and deriv and caught and ops_ok and status_ok
 	return ("SELFTEST PASS :: " if all_ok else "SELFTEST FAIL :: ") + " | ".join(log)

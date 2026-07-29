@@ -46,6 +46,15 @@ contenu** (les autres lisent un fact et appliquent une règle).
   spécial. La seule nouveauté vit dans `generate()`.
 - **Caveat contenu** : pool à 6 codes → peu de tension (~0.5 « faux espoir »). Le porter à 25–40
   (voir plus bas) avant de juger le fun.
+- **Store de modules** (général, tous types) : `scripts/core/module_store.gd` (`ModuleStore`).
+  Une MAP keyée par id, un **record par module** `{id, type, status}` (+ `_order`). API brain :
+  `register_module(id, type)` / `module_type` / `module_ids` / `module_status` / `mark_module` /
+  `reset_module` / `module_correct` + signal `module_status_changed`. `status` : `null` (pas
+  essayé) / `"false"` / `"correct"`. Store vidé à chaque `generate_flight`. Testé dans
+  `CockpitBrain.self_test()`. **À compléter au câblage** : le record gagnera `control_ids` + `slot`
+  (remplis par le spawner), un getter d'assemblage `module_view(id)` (join ModuleStore+ControlStore
+  pour la lecture/recap), l'appel à `register_module` par le spawner, `mark_module` au Submit, et la
+  **lumière** abonnée à `module_status_changed`.
 
 ### Pas fait
 
