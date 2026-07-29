@@ -15,6 +15,10 @@ func clear() -> void:
 
 ## Parse the "facts" array of the manual payload. Returns a list of validation errors
 ## (empty = ok). Each fact declares either "values":[..] or "gen":"number"+min/max.
+##
+## A fact VALUE is always a plain String — it is compared by the operators, printed in the
+## manual and read aloud by the pilot. Richer data about a value (an airport's full name)
+## belongs in its own catalog, looked up by the display layer; it must not travel through here.
 func load_defs(facts_array) -> Array:
 	var errors: Array = []
 	for f in facts_array:
