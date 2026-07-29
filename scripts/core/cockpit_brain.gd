@@ -220,7 +220,7 @@ static func self_test() -> String:
 	var c_ok := m.module_correct("ac")
 	m.reset_module("ac")
 	var s3 = m.module_status("ac")                 # untried again -> null
-	var status_ok := s_before == null and s0 == null and t_ok and s1 == ModuleStore.WRONG and s2 == ModuleStore.CORRECT and c_ok and s3 == null
+	var status_ok: bool = s_before == null and s0 == null and t_ok and s1 == ModuleStore.WRONG and s2 == ModuleStore.CORRECT and c_ok and s3 == null
 	log.append("module status %s" % ["OK" if status_ok else "FAIL"])
 	m.free()
 

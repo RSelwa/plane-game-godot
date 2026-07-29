@@ -28,7 +28,7 @@ var _brain: Node
 var _spawner: ModuleSpawner
 var _camera: CockpitCameraRig
 
-var _mission: Dictionary = {}
+var _mission: Mission = null
 var _controls: Dictionary = {}          # module id -> CockpitControl
 var _lives := 1
 var _time_left := 0.0
@@ -46,7 +46,7 @@ func _ready() -> void:
 		return
 
 	_mission = _resolve_mission()
-	if _mission.is_empty():
+	if _mission == null:
 		push_error("FlightRound: no mission to run")
 		return
 
@@ -66,11 +66,12 @@ func _ready() -> void:
 
 	_playing = true
 	print("[flight] mission=%s mode=%s seed=%d lives=%d modules=%s" % [
-		_mission.get("id", "?"), mode_id, _seed, _lives, str(_mission.get("modules", []))])
+		_mission.id, mode_id, _seed, _lives, str(_mission.modules)])
 	_refresh_all()
 
-func _resolve_mission() -> Dictionary:
-	return {}
+func _resolve_mission() -> Mission:
+	var mods: Array[String] = [ModuleAirportCode.ID]
+	return Mission.new("dev_airport_code", mods, 180, 2 )
 
 ## Surface data problems loudly at startup rather than as a silently-wrong round.
 func _report_data_errors() -> void:
@@ -85,7 +86,7 @@ func _report_data_errors() -> void:
 ## slots are focusable. Registration MUST happen before the manual loads so the brain can
 ## resolve state labels and validate the rules against real controls.
 func _build_dashboard() -> void:
-	_controls = _spawner.spawn(_mission.get("modules", []), _seed)
+	_controls = _spawner.spawn(_mission.modules, _seed)
 	var focus_slots: Array = []
 	for module_id in _controls:
 		var control: CockpitControl = _controls[module_id]
@@ -102,7 +103,7 @@ func _build_dashboard() -> void:
 		_camera.set_focus_targets(focus_slots)
 
 func _load_manual() -> void:
-	var payload := ModuleRegistry.build_manual_data(_mission.get("modules", []))
+	var payload := ModuleRegistry.build_manual_data(_mission.modules)
 	var res: String = _brain.load_manual_json(JSON.stringify(payload))
 	if res != "OK":
 		push_error("FlightRound: manual load failed: %s" % res)
@@ -161,7 +162,7 @@ func _finish(success: bool, reason: String) -> void:
 		"success": success,
 		"reason": reason,
 		"time_left": _time_left,
-		"mission": _mission.get("id", "?"),
+		"mission": _mission.id,
 		"mode": mode_id,
 		"seed": _seed,
 		"lives_left": _lives,

@@ -61,12 +61,12 @@ static func mode(id: String) -> Dictionary:
 
 ## LAND attempts the crew actually gets. Never below 1 — a mode may only ever be kinder
 ## than the mission, and a mission with no attempt at all is not a mission.
-static func effective_lives(mission: Dictionary, mode_id: String) -> int:
-	return maxi(1, int(mission.get("lives", 1)) + int(mode(mode_id).get("lives_bonus", 0)))
+static func effective_lives(mission: Mission, mode_id: String) -> int:
+	return maxi(1, int(mission.lives) + int(mode(mode_id).get("lives_bonus", 0)))
 
 ## Seconds on the clock once the mode's scale is applied.
-static func effective_time(mission: Dictionary, mode_id: String) -> int:
-	return maxi(1, int(round(float(mission.get("time", 0)) * float(mode(mode_id).get("time_scale", 1.0)))))
+static func effective_time(mission: Mission, mode_id: String) -> int:
+	return maxi(1, int(round(float(mission.time) * float(mode(mode_id).get("time_scale", 1.0)))))
 
 ## What a failed LAND attempt is allowed to reveal in-round.
 static func feedback(mode_id: String) -> String:

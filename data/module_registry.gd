@@ -11,9 +11,21 @@ extends RefCounted
 ## exactly the { "facts": [...], "modules": {...} } shape CockpitBrain.load_manual_json
 ## already eats, with the fact set narrowed to the union of what those modules read.
 
+
+## Deux FORMES de module existent, validées par des règles différentes. `kind` nomme laquelle.
+##
+## Un fichier de data écrit cette chaîne en littéral : il ne peut pas référencer une constante
+## d'ici sans créer une référence de classe cyclique (le registry référence déjà le module).
+## Donc un `kind` inconnu est ATTRAPÉ ci-dessous au lieu d'être rendu impossible — même échappa-
+## toire que les littéraux de .tscn (CLAUDE.md, « ONE OWNER PER CONSTANT »).
+const KIND_STATES := "states"
+const KIND_WHEELS := "wheels"
+
 ## Every registered module type, keyed by id.
 static func defs() -> Dictionary:
-	return {}
+	return {
+		ModuleAirportCode.ID: ModuleAirportCode.def()
+	}
 
 static func ids() -> Array:
 	return defs().keys()
@@ -54,12 +66,13 @@ static func build_manual_data(module_ids: Array) -> Dictionary:
 ## operator, or a rule setting a state the module does not declare. Returns an empty
 ## array when the registry is clean. Cheap enough to run on load.
 ##
-## Also guards the two things that CANNOT be reduced to a single declaration by the language
+## Also guards the three things that CANNOT be reduced to a single declaration by the language
 ## and so have to be kept honest by a check instead:
 ##   - a prefab re-declaring control_id / state_labels (a .tscn stores literals, it cannot
 ##     reference a constant), which would silently shadow the data file
 ##   - a fact id drifting off snake_case, the convention the id strings share with control /
 ##     module / mission / mode ids
+##   - a module's `kind`, written as a literal in its data file (see KIND_STATES above)
 static func validate() -> Array:
 	var errors: Array = []
 	errors.append_array(_validate_fact_id_convention())
@@ -67,34 +80,62 @@ static func validate() -> Array:
 		var d: Dictionary = def(id)
 		if d.get("id", "") != id:
 			errors.append("module '%s': def().id is '%s'" % [id, d.get("id", "")])
-		var states: Array = d.get("states", [])
-		if states.size() < 2:
-			errors.append("module '%s': needs at least 2 states" % id)
 		errors.append_array(_validate_prefab_declares_nothing(id, d))
-		for fact_id in d.get("facts", []):
+		match d.get("kind", KIND_STATES):
+			KIND_STATES:
+				errors.append_array(_validate_states_module(id, d))
+			KIND_WHEELS:
+				errors.append_array(_validate_wheels_module(id, d))
+			var unknown:
+				errors.append("module '%s': unknown kind '%s'" % [id, str(unknown)])
+	return errors
+
+## Un module à ÉTATS : une liste d'états fixe, plus une liste de décision qui en choisit un.
+## Le moteur générique le traite de bout en bout — un module de cette forme n'a AUCUN code.
+static func _validate_states_module(id: String, d: Dictionary) -> Array:
+	var errors: Array = []
+	var states: Array = d.get("states", [])
+	if states.size() < 2:
+		errors.append("module '%s': needs at least 2 states" % id)
+	for fact_id in d.get("facts", []):
+		if not CockpitFacts.has(fact_id):
+			errors.append("module '%s': unknown fact '%s'" % [id, fact_id])
+	var declared_facts: Array = d.get("facts", [])
+	var rules: Array = d.get("rules", [])
+	var branch := 0
+	var has_else := false
+	for rule in rules:
+		var set_label: String = rule.get("else", rule.get("set", ""))
+		if rule.has("else"):
+			has_else = true
+		if not states.has(set_label):
+			errors.append("module '%s' branch %d: sets undeclared state '%s'" % [id, branch, set_label])
+		for cond in rule.get("when", []):
+			var fact_id: String = cond.get("fact", "")
 			if not CockpitFacts.has(fact_id):
-				errors.append("module '%s': unknown fact '%s'" % [id, fact_id])
-		var declared_facts: Array = d.get("facts", [])
-		var rules: Array = d.get("rules", [])
-		var branch := 0
-		var has_else := false
-		for rule in rules:
-			var set_label: String = rule.get("else", rule.get("set", ""))
-			if rule.has("else"):
-				has_else = true
-			if not states.has(set_label):
-				errors.append("module '%s' branch %d: sets undeclared state '%s'" % [id, branch, set_label])
-			for cond in rule.get("when", []):
-				var fact_id: String = cond.get("fact", "")
-				if not CockpitFacts.has(fact_id):
-					errors.append("module '%s' branch %d: unknown fact '%s'" % [id, branch, fact_id])
-				elif not declared_facts.has(fact_id):
-					errors.append("module '%s' branch %d: reads fact '%s' missing from its 'facts' list" % [id, branch, fact_id])
-				if not CockpitOps.is_known(cond.get("op", "")):
-					errors.append("module '%s' branch %d: unknown op '%s'" % [id, branch, cond.get("op", "")])
-			branch += 1
-		if not has_else:
-			errors.append("module '%s': decision list has no final 'else' default" % id)
+				errors.append("module '%s' branch %d: unknown fact '%s'" % [id, branch, fact_id])
+			elif not declared_facts.has(fact_id):
+				errors.append("module '%s' branch %d: reads fact '%s' missing from its 'facts' list" % [id, branch, fact_id])
+			if not CockpitOps.is_known(cond.get("op", "")):
+				errors.append("module '%s' branch %d: unknown op '%s'" % [id, branch, cond.get("op", "")])
+		branch += 1
+	if not has_else:
+		errors.append("module '%s': decision list has no final 'else' default" % id)
+	return errors
+
+## Un module à MOLETTES : ni états ni règles. Son contenu est tiré par INSTANCE depuis la seed,
+## et sa réponse est CHERCHÉE dans ce contenu (CLAUDE.md, Modèle B). Ses états n'existent donc
+## qu'à l'exécution — les déclarer serait une deuxième source de vérité.
+static func _validate_wheels_module(id: String, d: Dictionary) -> Array:
+	var errors: Array = []
+	if int(d.get("wheel_count", 0)) < 1:
+		errors.append("module '%s': wheel_count must be at least 1" % id)
+	if int(d.get("wheel_size", 0)) < 2:
+		errors.append("module '%s': wheel_size must be at least 2" % id)
+	if int(d.get("max_instances", 0)) < 1:
+		errors.append("module '%s': max_instances must be at least 1" % id)
+	if d.has("states") or d.has("rules"):
+		errors.append("module '%s': a wheels module declares neither states nor rules" % id)
 	return errors
 
 ## A module's prefab must leave control_id and state_labels EMPTY: ModuleSpawner pushes both

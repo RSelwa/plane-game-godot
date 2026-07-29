@@ -170,7 +170,7 @@ static func self_test() -> String:
 			seen[ch] = true
 	log.append("wheels_shape_ok=%s" % wheels_ok)
 
-	var not_solved := b["start"] != b["target_index"]
+	var not_solved: bool = b["start"] != b["target_index"]
 	log.append("not_pre_solved=%s" % not_solved)
 
 	var rng2 := RandomNumberGenerator.new()
