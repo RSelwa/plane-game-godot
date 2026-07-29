@@ -57,3 +57,18 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.133, 0.102, 0)
 
 [node name="Collision" type="CollisionShape3D" parent="Submit" unique_id=548094264]
 shape = SubResource("BoxShape3D_submit")
+
+[node name="FirstDigit" type="Label3D" parent="." unique_id=134149502]
+transform = Transform3D(-5.732056e-15, 1, 4.371139e-08, -1.3113416e-07, -4.371139e-08, 1, 1, 0, 1.3113416e-07, 0.012888856, 0.1454759, -0.09019771)
+pixel_size = 0.002
+text = "A"
+
+[node name="SecondDigit" type="Label3D" parent="." unique_id=1938823750]
+transform = Transform3D(-5.732056e-15, 1, 4.371139e-08, -1.3113416e-07, -4.371139e-08, 1, 1, 0, 1.3113416e-07, 0.012888856, 0.1454759, -0.0018665493)
+pixel_size = 0.002
+text = "A"
+
+[node name="ThirdDigit" type="Label3D" parent="." unique_id=703528019]
+transform = Transform3D(-5.732056e-15, 1, 4.371139e-08, -1.3113416e-07, -4.371139e-08, 1, 1, 0, 1.3113416e-07, 0.012888856, 0.1454759, 0.08555878)
+pixel_size = 0.002
+text = "A"
