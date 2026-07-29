@@ -8,9 +8,10 @@ Dernière mise à jour : session du 29/07/2026.
 **Cette session :** switch/dial/lever et `data/campaign.gd` **supprimés** ; registry vide ; projet
 non-runnable jusqu'à ce qu'`airport_code` soit enregistré. Le modèle de pick est décidé : **Modèle B**
 (edgework par instance, manuel générique fixe par type, ids d'instance — spec dans `CLAUDE.md`,
-« Module instances & per-instance edgework »). Conséquence pour le module ci-dessous : le **nombre de
-molettes 3–6 devient de l'edgework tiré par instance**, plus une constante fixe, et le manuel porte
-lui-même les conditions (`si 3 molettes → …, sinon 6 → …`).
+« Module instances & per-instance edgework »). Pour `airport_code` : 3 molettes **fixes** (codes
+IATA à 3 lettres) ; l'edgework tiré par instance = **les 6 lettres de chaque molette**. Le manuel
+est générique et fixe (le pilote lit ses 18 lettres, la tour cherche l'unique code épelable).
+(Le « 3–6 boutons » discuté était un AUTRE type hypothétique, pas ce module.)
 
 ---
 
@@ -28,20 +29,33 @@ contenu** (les autres lisent un fact et appliquent une règle).
 - `models/modules/password.glb` — modèle 3D
 - `scenes/modules/airport_code.tscn` — 3 molettes (`Digit1/2/3` × `Minus`/`Plus`), un `Submit`,
   3 `Label3D` d'affichage (texte `"A"` en dur pour l'instant), une lumière, une caméra
-- `scenes/modules/airport_code.gd` — script vide (stub généré par Godot)
+- `scenes/modules/airport_code_view.gd` — la VUE (stub vide pour l'instant ; câblera labels + boutons ±)
 - `data/facts.gd` — `AIRPORTS` est devenu une liste d'objets `{code, name}` + `AIRPORT_KEY`,
   `airport_codes()` (ce que consommera le générateur), `airport_name(code)` (pour l'affichage)
 - `scripts/flight.gd:212` — la seed s'affiche dans le Label `UI/Status`
 
+### Fait cette session
+
+- `data/modules/airport_code_logic.gd` (classe `ModuleAirportCode`) — la **fiche** `def()` (Modèle B : `kind "wheels"`, `check
+  "state_match"`, `wheel_count 3`, `wheel_size 6`, `max_instances 2`) **+ le générateur**
+  `generate(codes, rng) -> {target, wheels:[[6]×3], target_index, start}` **+ `self_test()`**.
+  Gate ajouté dans `scripts/tests/brain_test.gd`. Algorithme validé hors-moteur : 5000 seeds
+  passent (unicité, `target_index` correct, pas de doublon, départ ≠ solution, déterminisme),
+  1.05 tirage moyen. Le `check` retenu est `state_match` par molette (pas `value_match`) : la
+  réponse d'une molette = l'index de sa lettre cible, donc le moteur générique valide sans cas
+  spécial. La seule nouveauté vit dans `generate()`.
+- **Caveat contenu** : pool à 6 codes → peu de tension (~0.5 « faux espoir »). Le porter à 25–40
+  (voir plus bas) avant de juger le fun.
+
 ### Pas fait
 
-1. `data/modules/airport_code.gd` — la **fiche** du module (`def()`), n'existe pas encore.
-   Contenu prévu : `id`, `display`, `scene`, `footprint [2,1]`, `zones [ZONE_MAIN]`,
-   `check "value_match"`, `WHEEL_COUNT 3`, `WHEEL_SIZE 6`.
-2. Le **générateur** : `generate(codes, seed) -> {target, wheels:[[6 lettres]×3], target_index:[i,j,k]}`
-   + un `self_test()` qui vérifie l'unicité sur tout le pool.
-3. `ControlStore.request_cycle(id, step)` — le bouton `−` n'existe pas, seul `+1` est possible.
-4. Câblage dans `flight.gd` : générer avec `_seed`, `register_control` × 3, puis `set_required` × 3.
+1. `ControlStore.request_cycle(id, step)` — le bouton `−` n'existe pas, seul `+1` est possible.
+2. `ModuleRegistry` : brancher `kind "wheels"` — ajouter `airport_code` à `defs()` et faire
+   `validate()` valider un module généré (champs `wheel_*` + scène `Node3D`) au lieu d'exiger
+   états/règles/racine `CockpitControl`.
+3. **1 module = N controls** : le spawner instancie 1 prefab mais enregistre 3 molettes-controls
+   (`airport_code_1/w0..w2`) ; ids d'instance suffixés (débloque `control_store.gd:18`).
+4. Câblage dans `flight.gd` : `generate` avec `_seed`, `register_control` × 3, `set_required` × 3.
 5. La scène : les 3 `Label3D` doivent lire la lettre courante au lieu du `"A"` en dur ;
    les 6 boutons `±` doivent appeler `request_cycle`.
 6. Panneau debug F3 (voir plus bas).

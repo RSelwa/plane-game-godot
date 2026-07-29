@@ -17,6 +17,10 @@ func _initialize() -> void:
 	print(brain_result)
 	ok = ok and brain_result.begins_with("SELFTEST PASS")
 
+	var wheels_result := ModuleAirportCode.self_test()
+	print(wheels_result)
+	ok = ok and wheels_result.begins_with("SELFTEST PASS")
+
 	for pair in [
 		["ModuleRegistry", ModuleRegistry.validate()],
 		["DashboardLayout", DashboardLayout.validate()],
