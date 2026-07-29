@@ -84,8 +84,23 @@ func reset_module(module_id: String) -> void:
 	_modules.reset(module_id)
 	module_status_changed.emit(module_id, null)
 
+## A-t-il DÉJÀ été marqué correct ? (le statut, donc le résultat d'un Submit passé)
 func module_correct(module_id: String) -> bool:
 	return _modules.is_correct(module_id)
+
+## Est-il correct MAINTENANT ? Vrai quand chacun de ses controls est sur son état requis.
+## À ne pas confondre avec module_correct() : celui-ci calcule, l'autre se souvient. C'est ce
+## calcul que le Submit consulte, et il vit ici parce que la vue ne doit jamais voir la réponse.
+func module_matches_required(module_id: String) -> bool:
+	var ids := _modules.control_ids(module_id)
+	if ids.is_empty():
+		return false
+	for cid in ids:
+		if not _controls.has_required(cid):
+			return false
+		if _controls.get_state(cid) != _controls.required_state(cid):
+			return false
+	return true
 
 func set_module_edgework(module_id: String, edgework: Dictionary) -> void:
 	_modules.set_edgework(module_id, edgework)

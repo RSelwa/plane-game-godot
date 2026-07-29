@@ -24,7 +24,9 @@ class_name FlightRound
 ## 0 rolls a fresh seed; anything else reproduces that exact flight (facts AND layout).
 @export var fixed_seed: int = 0
 
-var _brain: Node
+## Typé, pas `Node` : sinon chaque appel `_brain.xxx()` retourne du Variant, `:=` n'a rien à
+## inférer, et une méthode mal orthographiée ne se voit qu'à l'exécution.
+var _brain: CockpitBrain
 var _spawner: ModuleSpawner
 var _camera: CockpitCameraRig
 
@@ -33,15 +35,20 @@ var _mission: Mission = null
 ## deux tables au lieu d'une : ce qui a été spawné, et qui dessine quoi.
 var _modules: Dictionary = {}           # module id -> le nœud spawné (Node3D)
 var _control_owner: Dictionary = {}     # control id -> le nœud qui le DESSINE
+var _control_module: Dictionary = {}    # control id -> le module qui le PORTE (pour le verrou)
 var _lives := 1
 var _time_left := 0.0
 var _playing := false
 var _seed := 0
+## Le debug est le SEUL endroit du jeu qui MONTRE la réponse, donc caché par défaut. Il lit tout
+## depuis le brain, jamais depuis la vue : au multijoueur le brain sera côté serveur, et une
+## réponse qui aurait transité par le client serait trichable.
+var _debug_visible := false
 
 func _ready() -> void:
 	get_viewport().physics_object_picking = true
 
-	_brain = get_node_or_null(brain_path)
+	_brain = get_node_or_null(brain_path) as CockpitBrain
 	_spawner = get_node_or_null(dashboard_path) as ModuleSpawner
 	_camera = get_node_or_null(camera_path) as CockpitCameraRig
 	if _brain == null or _spawner == null:
@@ -92,6 +99,7 @@ func _report_data_errors() -> void:
 func _build_dashboard() -> void:
 	_modules = _spawner.spawn(_mission.modules, _seed)
 	_control_owner.clear()
+	_control_module.clear()
 	## UN SEUL flux rng pour tout le tableau de bord : chaque instance avance le flux, donc deux
 	## instances du même type tirent des plateaux différents, et la seed reproduit l'ensemble.
 	var rng := RandomNumberGenerator.new()
@@ -111,6 +119,8 @@ func _build_dashboard() -> void:
 			focus_slots.append(slot)
 	if not _brain.is_connected("state_changed", _on_state_changed):
 		_brain.connect("state_changed", _on_state_changed)
+	if not _brain.is_connected("module_status_changed", _on_module_status_changed):
+		_brain.connect("module_status_changed", _on_module_status_changed)
 	if _camera != null:
 		_camera.set_focus_targets(focus_slots)
 
@@ -123,6 +133,7 @@ func _register_control_module(module_id: String, node: Node3D) -> void:
 	_brain.register_control(module_id, control.state_labels)
 	_brain.set_module_controls(module_id, [module_id])
 	_control_owner[module_id] = control
+	_control_module[module_id] = module_id
 	if not control.cycle_requested.is_connected(_on_cycle_requested):
 		control.cycle_requested.connect(_on_cycle_requested)
 	control.apply_state(_brain.get_state(module_id))
@@ -142,14 +153,17 @@ func _register_wheels_module(module_id: String, node: Node3D, rng: RandomNumberG
 		var cid := ModuleRegistry.wheel_control_id(module_id, i)
 		_brain.register_control(cid, wheels[i])
 		_control_owner[cid] = node
+		_control_module[cid] = module_id
 		ids.append(cid)
 	_brain.set_module_controls(module_id, ids)
 	## La vue ne reçoit QUE ce que le pilote peut voir : les lettres. `target` / `target_index`
 	## restent dans le brain — en multijoueur la vue sera côté client, donc trichable.
 	if node.has_method("bind_wheels"):
-		node.bind_wheels(ids, wheels)
+		node.bind_wheels(module_id, ids, wheels)
 	if node.has_signal("cycle_requested") and not node.cycle_requested.is_connected(_on_cycle_requested):
 		node.cycle_requested.connect(_on_cycle_requested)
+	if node.has_signal("submit_requested") and not node.submit_requested.is_connected(_on_submit_requested):
+		node.submit_requested.connect(_on_submit_requested)
 	## Rotation de départ posée APRÈS le bind, pour que la vue reçoive bien le signal.
 	for i in ids.size():
 		_brain.set_state(ids[i], int(start[i]))
@@ -178,8 +192,36 @@ func _process(delta: float) -> void:
 		_finish(false, "TIME UP")
 
 func _on_cycle_requested(id: String, step: int) -> void:
-	if _playing:
-		_brain.request_cycle(id, step)
+	if not _playing:
+		return
+	## Un module validé est VERROUILLÉ. Le verrou est vérifié ICI et pas dans la vue : une vue qui
+	## refuse d'émettre suffit en solo, mais en multijoueur elle sera côté client. L'autorité doit
+	## rester du côté qui connaît la réponse.
+	var module_id: String = _control_module.get(id, "")
+	if not module_id.is_empty() and _brain.module_correct(module_id):
+		return
+	_brain.request_cycle(id, step)
+	## Bouger une molette éteint le rouge : ainsi « rouge » veut dire « CETTE combinaison a été
+	## refusée » et pas « tu t'es trompé à un moment ». Aucune information de plus n'est donnée —
+	## il faut toujours un Submit pour apprendre quoi que ce soit — mais ça évite de re-soumettre
+	## deux fois le même code.
+	if not module_id.is_empty() and _brain.module_status(module_id) != null:
+		_brain.reset_module(module_id)
+
+## Submit sur un module : le BRAIN juge, la vue ne fait que demander. Un module déjà validé ne se
+## re-soumet pas — sinon la lampe verte pourrait repasser au rouge sans qu'une molette ait bougé.
+func _on_submit_requested(module_id: String) -> void:
+	if not _playing or _brain.module_correct(module_id):
+		return
+	var ok: bool = _brain.module_matches_required(module_id)
+	_brain.mark_module(module_id, ModuleStore.CORRECT if ok else ModuleStore.WRONG)
+
+## Le statut d'un module a changé → sa lampe. Le round route, il ne décide pas de la couleur :
+## c'est la vue du module qui sait à quoi ressemble SON retour d'information.
+func _on_module_status_changed(module_id: String, status) -> void:
+	var node = _modules.get(module_id)
+	if node != null and node.has_method("apply_module_status"):
+		node.apply_module_status(status)
 
 ## Le brain a changé un état : on le fait dessiner par le nœud qui possède ce control. Un
 ## module à molettes reçoit l'id du control, sinon il ne saurait pas QUELLE molette redessiner.
@@ -191,6 +233,11 @@ func _on_state_changed(id: String, state: int) -> void:
 		elif view is CockpitControl:
 			(view as CockpitControl).apply_state(state)
 	_refresh_status()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F3:
+		_debug_visible = not _debug_visible
+		_refresh_status()
 
 func _on_land_pressed() -> void:
 	if _playing:
@@ -277,8 +324,34 @@ func _refresh_status() -> void:
 	var rows: Array[String] = []
 	for id in _control_owner:
 		rows.append("  %s: %s" % [id, _brain.state_label(id, _brain.get_state(id))])
-	lbl.text = "SEED: %d\n\nFLIGHT (read to tower):\n" % _seed + "\n".join(facts) + "\n\nCOCKPIT:\n" + "\n".join(rows)
-	
+	lbl.text = "SEED: %d\n\nFLIGHT (read to tower):\n" % _seed + "\n".join(facts) \
+		+ "\n\nCOCKPIT:\n" + "\n".join(rows) + _debug_text()
+
+## Le plateau et la réponse de chaque module généré. Caché derrière F3 : c'est la solution.
+## Tout vient du brain — le spawner et les vues ne sont jamais interrogés.
+func _debug_text() -> String:
+	if not _debug_visible:
+		return "\n\n[F3] debug"
+	var out: Array[String] = ["", "── DEBUG (F3) ──"]
+	for module_id in _modules:
+		var board: Dictionary = _brain.module_edgework(module_id)
+		if board.is_empty():
+			continue
+		var wheels: Array = board.get("wheels", [])
+		var target_index: Array = board.get("target_index", [])
+		out.append("%s   target=%s" % [module_id, board.get("target", "?")])
+		var typed := ""
+		for i in wheels.size():
+			var cid := ModuleRegistry.wheel_control_id(module_id, i)
+			var current: String = _brain.state_label(cid, _brain.get_state(cid))
+			typed += current
+			var letters := PackedStringArray(wheels[i])
+			var need := "?"
+			if i < target_index.size():
+				need = str(wheels[i][int(target_index[i])])
+			out.append("  w%d [%s]  need=%s  is=%s" % [i, " ".join(letters), need, current])
+		out.append("  composé=%s  valide=%s" % [typed, str(_brain.module_matches_required(module_id))])
+	return "\n".join(out)
 
 func _refresh_timer() -> void:
 	var lbl := get_node_or_null(timer_label_path)
