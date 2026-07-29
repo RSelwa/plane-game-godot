@@ -21,6 +21,12 @@ extends RefCounted
 const KIND_STATES := "states"
 const KIND_WHEELS := "wheels"
 
+## Une stratégie de génération d'edgework, NOMMÉE. Par défaut l'edgework est de la pure data
+## (gen:number, pick-dans-un-pool) ; un type dont le contenu porte une VRAIE contrainte — ici
+## « exactement un code épelable » — déclare une stratégie en code (CLAUDE.md, Modèle B).
+## Le fichier de data écrit la chaîne en littéral, même échappatoire que `kind` ci-dessus.
+const GEN_AIRPORT_WHEELS := "airport_wheels"
+
 ## Every registered module type, keyed by id.
 static func defs() -> Dictionary:
 	return {
@@ -59,7 +65,13 @@ static func build_manual_data(module_ids: Array) -> Dictionary:
 				push_error("ModuleRegistry: module '%s' reads unknown fact '%s'" % [id, fact_id])
 				continue
 			facts.append(fact_def)
-		modules[id] = d.get("rules", [])
+		## Un module à molettes n'a pas de liste de décision, et ses controls ne portent pas
+		## l'id du module (voir wheel_control_id) : le mettre dans la charge du manuel ferait
+		## rejeter un « unknown control » à chaque round (manual_engine.gd:97). Sa page du
+		## livre est de la prose + le pool imprimé, pas un if/else.
+		## Ses FACTS, eux, restent tirés au-dessus — une plaque du cockpit reste une plaque.
+		if d.get("kind", KIND_STATES) != KIND_WHEELS:
+			modules[id] = d.get("rules", [])
 	return { "facts": facts, "modules": modules }
 
 ## Static sanity pass over every registered module: catches a typo'd fact, an unknown
@@ -80,7 +92,7 @@ static func validate() -> Array:
 		var d: Dictionary = def(id)
 		if d.get("id", "") != id:
 			errors.append("module '%s': def().id is '%s'" % [id, d.get("id", "")])
-		errors.append_array(_validate_prefab_declares_nothing(id, d))
+		errors.append_array(_validate_prefab(id, d))
 		match d.get("kind", KIND_STATES):
 			KIND_STATES:
 				errors.append_array(_validate_states_module(id, d))
@@ -136,31 +148,43 @@ static func _validate_wheels_module(id: String, d: Dictionary) -> Array:
 		errors.append("module '%s': max_instances must be at least 1" % id)
 	if d.has("states") or d.has("rules"):
 		errors.append("module '%s': a wheels module declares neither states nor rules" % id)
+	if str(d.get("edgework_gen", "")).is_empty():
+		errors.append("module '%s': a wheels module needs an edgework_gen strategy" % id)
+
 	return errors
 
-## A module's prefab must leave control_id and state_labels EMPTY: ModuleSpawner pushes both
-## from def() at spawn time. A prefab that fills them in is a second source of truth the
-## other checks here cannot see — they validate the rules against def()["states"], while the
-## brain would be registering whatever the scene carried.
-static func _validate_prefab_declares_nothing(id: String, d: Dictionary) -> Array:
+  ## Le prefab d'un module, vérifié selon sa FORME.
+  ##
+  ## Module à ÉTATS : la racine est un CockpitControl, et il doit laisser control_id et
+  ## state_labels VIDES — ModuleSpawner les pousse depuis def() au spawn. Un prefab qui les
+  ## remplit est une deuxième source de vérité que les autres contrôles d'ici ne peuvent pas
+  ## voir : eux valident les règles contre def()["states"], alors que le brain enregistrerait
+  ## ce que la SCÈNE portait. Les deux divergent en silence.
+  ##
+  ## Module à MOLETTES : la racine est un Node3D nu contenant N molettes. Une racine
+  ## CockpitControl signifierait UN control — précisément la forme que ce module n'a pas.
+static func _validate_prefab(id: String, d: Dictionary) -> Array:
 	var errors: Array = []
 	var scene_path: String = d.get("scene", "")
 	if scene_path.is_empty() or not ResourceLoader.exists(scene_path):
-		errors.append("module '%s': missing scene '%s'" % [id, scene_path])
-		return errors
+			errors.append("module '%s': missing scene '%s'" % [id, scene_path])
+			return errors
 	var packed: PackedScene = load(scene_path)
 	if packed == null:
-		errors.append("module '%s': could not load '%s'" % [id, scene_path])
-		return errors
+			errors.append("module '%s': could not load '%s'" % [id, scene_path])
+			return errors
 	var probe := packed.instantiate()
-	if probe is CockpitControl:
-		var control := probe as CockpitControl
-		if not control.control_id.is_empty():
-			errors.append("module '%s': prefab hardcodes control_id '%s' — remove it, the spawner pushes it" % [id, control.control_id])
-		if control.state_labels.size() > 0:
-			errors.append("module '%s': prefab hardcodes state_labels %s — remove it, the spawner pushes def().states" % [id, str(control.state_labels)])
+	if d.get("kind", KIND_STATES) == KIND_WHEELS:
+			if probe is CockpitControl or not (probe is Node3D):
+					errors.append("module '%s': wheels prefab root must be a plain Node3D, got %s" % [id, probe.get_class()])
+	elif probe is CockpitControl:
+			var control := probe as CockpitControl
+			if not control.control_id.is_empty():
+					errors.append("module '%s': prefab hardcodes control_id '%s' — remove it, the spawner pushes it" % [id, control.control_id])
+			if control.state_labels.size() > 0:
+					errors.append("module '%s': prefab hardcodes state_labels %s — remove it, the spawner pushes def().states" % [id, str(control.state_labels)])
 	else:
-		errors.append("module '%s': prefab root is not a CockpitControl" % id)
+			errors.append("module '%s': prefab root is not a CockpitControl" % id)
 	probe.free()
 	return errors
 
@@ -176,3 +200,26 @@ static func _validate_fact_id_convention() -> Array:
 				errors.append("fact '%s': id must be lowercase snake_case" % s)
 				break
 	return errors
+
+## Un module à molettes enregistre UN control par molette. Seul endroit où cet id s'écrit —
+## la vue, le brain et le panneau debug passent tous par ici.
+static func wheel_control_id(module_id: String, wheel: int) -> String:
+	return "%s/w%d" % [module_id, wheel]
+
+## Roule l'edgework d'UNE instance. C'est le point de rencontre entre le CONTENU (le pool
+## d'aéroports, qui vit dans data/facts.gd) et l'ALGORITHME (qui vit dans le module) : le
+## module ignore les facts, le registry ignore l'algorithme. Dictionnaire vide = ce module
+## n'a pas d'edgework.
+##
+## `module_id` est aujourd'hui aussi l'id de TYPE. Quand mission_gen introduira les suffixes
+## d'instance (airport_code_1), c'est le type qu'il faudra passer ici.
+static func roll_edgework(module_id: String, rng: RandomNumberGenerator) -> Dictionary:
+	var d := def(module_id)
+	match str(d.get("edgework_gen", "")):
+		"":
+			return {}
+		GEN_AIRPORT_WHEELS:
+			return ModuleAirportCode.generate(CockpitFacts.airport_codes(), rng)
+		var unknown:
+			push_error("ModuleRegistry: module '%s' names unknown edgework_gen '%s'" % [module_id, str(unknown)])
+			return {}

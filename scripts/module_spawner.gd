@@ -69,9 +69,17 @@ func spawn(module_ids: Array, seed_value: int) -> Dictionary:
 ## Diverge the two and validate() reports clean while the derive silently misbehaves.
 ## Pushing from here makes the module's data file the only place states are written.
 func _apply_contract(node: Node3D, module_id: String, module_def: Dictionary) -> void:
+		## Un module à MOLETTES ne passe pas par ici : sa racine est un Node3D qui contient N
+		## molettes, et ses états sont les LETTRES tirées de la seed — le spawner ne les connaît
+		## pas et ne doit pas les connaître. C'est le câblage du round (flight.gd) qui lui pousse
+		## son plateau, après le tirage.
+	if module_def.get("kind", ModuleRegistry.KIND_STATES) == ModuleRegistry.KIND_WHEELS:
+		return
+		
 	if not (node is CockpitControl):
 		push_error("ModuleSpawner: module '%s' root is not a CockpitControl" % module_id)
 		return
+		
 	var states: Array = module_def.get("states", [])
 	if states.size() < 2:
 		push_error("ModuleSpawner: module '%s' declares %d state(s), needs at least 2" % [module_id, states.size()])

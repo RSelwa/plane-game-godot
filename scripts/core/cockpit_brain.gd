@@ -34,8 +34,8 @@ func state_label(id: String, state: int) -> String:
 func label_index(id: String, label: String) -> int:
 	return _controls.label_index(id, label)
 
-func request_cycle(id: String) -> int:
-	var s := _controls.request_cycle(id)
+func request_cycle(id: String, step: int = 1 ) -> int:
+	var s := _controls.request_cycle(id, step)
 	if s >= 0:
 		state_changed.emit(id, s)
 	return s
@@ -87,6 +87,18 @@ func reset_module(module_id: String) -> void:
 func module_correct(module_id: String) -> bool:
 	return _modules.is_correct(module_id)
 
+func set_module_edgework(module_id: String, edgework: Dictionary) -> void:
+	_modules.set_edgework(module_id, edgework)
+
+func module_edgework(module_id: String) -> Dictionary:
+	return _modules.edgework(module_id)
+
+func set_module_controls(module_id: String, control_ids: Array) -> void:
+	_modules.set_control_ids(module_id, control_ids)
+
+func module_controls(module_id: String) -> Array:
+	return _modules.control_ids(module_id)
+
 # --- Facts (delegate to FactStore) ------------------------------------------------
 
 func fact_ids() -> Array:
@@ -128,7 +140,10 @@ func _flush_errors() -> void:
 func generate_flight(seed_value: int) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
-	_modules.clear()
+	## PAS de _modules.clear() ici. Le jeu de modules du vol est établi par le SPAWN, qui a lieu
+	## AVANT ce tirage (il faut les lettres tirées pour enregistrer les controls). Vider ici
+	## effacerait l'edgework qu'on vient de rouler. Un nouveau round = une nouvelle scène =
+	## un nouveau brain, donc il n'y a pas d'état résiduel à nettoyer.
 	_facts.roll(rng)
 	_controls.clear_required()
 	var required := _manual.derive(_facts)

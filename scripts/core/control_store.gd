@@ -53,12 +53,12 @@ func label_index(id: String, label: String) -> int:
 			return i
 	return -1
 
-func request_cycle(id: String) -> int:
+func request_cycle(id: String, step: int = 1) -> int:
 	if not _state.has(id):
 		push_error("CockpitBrain: cycle unknown control '%s'." % id)
 		return -1
-	var n: int = (_labels[id] as Array).size()
-	var s := (int(_state[id]) + 1) % n
+	var n: int = (_labels[id] as Array).size() # nombre de lettres sur cylindre
+	var s := ((int(_state[id]) + step) % n + n) % n
 	_state[id] = s
 	return s
 

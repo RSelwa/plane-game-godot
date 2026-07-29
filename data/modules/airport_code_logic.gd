@@ -38,7 +38,8 @@ static func def() -> Dictionary:
 		"check": "state_match",
 		"wheel_count": WHEEL_COUNT,
 		"wheel_size": WHEEL_SIZE,
-		"max_instances": 2,
+		"max_instances": 1,
+		"edgework_gen": "airport_wheels",
 	}
 
 ## Roll one board from `codes` and `rng`. Deterministic: same rng state + same pool => same
