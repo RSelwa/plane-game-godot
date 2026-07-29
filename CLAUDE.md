@@ -88,10 +88,10 @@ Decided for testability: MCP/reflection can drive and inspect **C#** but is blin
   - `data/modules/<id>.gd` (`ModuleSwitch`/`ModuleDial`/`ModuleLever`) — **one file per module TYPE**, self-contained: scene, footprint, states, the facts it reads, its decision list.
   - `data/module_registry.gd` (`ModuleRegistry`) — id → definition. `build_manual_data(ids)` assembles a mission's payload in the exact shape `LoadManualJson` eats. `validate()` catches typo'd facts/ops/states.
   - `data/dashboard.gd` (`DashboardLayout`) — the 12-slot grid (overhead 1×4 + main 2×4), the fixed fact anchors, and seeded `place(module_ids, seed)`.
-  - `data/campaign.gd` (`CockpitCampaign`) — the ordered mission list. `validate()` catches unknown module ids.
+  - `data/campaign.gd` (`CockpitCampaign`) — **LEGACY, to be deleted.** A hand-written mission list; superseded by seed-generated rounds (see "Round = parameters + a seed").
   - `data/modes.gd` (`CockpitModes`) — difficulty modes as pure modifiers over a mission.
 - **Scenes:** `scenes/main_menu.tscn` (main scene) → `scenes/flight.tscn` (+ `scenes/dashboard.tscn`) → `scenes/round_recap.tscn` (+ `settings.tscn` stub).
-- **ONE OWNER PER CONSTANT — no global constants file.** Every `class_name` script is already reachable from anywhere, so centralising would only add a copy. The owner is the file whose behaviour defines the thing: fact ids + pools → `data/facts.gd`; operator name/behaviour/phrasing → `scripts/core/manual_engine.gd`; module id + states + rules → `data/modules/<id>.gd`; slots/zones/anchors → `data/dashboard.gd`; mission ids → `data/campaign.gd`; mode ids → `data/modes.gd`; scene paths → `scripts/game.gd`. Two things the language cannot reduce to a single declaration — a `.tscn` cannot reference a constant, and a `match` cannot be enumerated — so they are guarded by `ModuleRegistry.validate()` instead of being made impossible.
+- **ONE OWNER PER CONSTANT — no global constants file.** Every `class_name` script is already reachable from anywhere, so centralising would only add a copy. The owner is the file whose behaviour defines the thing: fact ids + pools → `data/facts.gd`; operator name/behaviour/phrasing → `scripts/core/manual_engine.gd`; module id + states + rules → `data/modules/<id>.gd`; slots/zones/anchors → `data/dashboard.gd`; round params + generation bounds → `data/mission_gen.gd`; mode ids → `data/modes.gd`; scene paths → `scripts/game.gd`. Two things the language cannot reduce to a single declaration — a `.tscn` cannot reference a constant, and a `match` cannot be enumerated — so they are guarded by `ModuleRegistry.validate()` instead of being made impossible.
 - **Fact id convention:** the id STRING is lowercase `snake_case` (it crosses JSON, keys the rules, prints in the HUD), the naming CONSTANT is `SCREAMING_CASE`. Pool VALUES stay uppercase display text. Enforced by `ModuleRegistry.validate()`.
 
 ### The puzzle engine (KTANE decision lists)
@@ -103,10 +103,17 @@ Everything generates from ONE seed (`CockpitBrain.GenerateFlight(seed)` — same
 - Authoring flow: `ModuleRegistry.build_manual_data(mission.modules)` (named constants → typo-safe) → manager `JSON.stringify`s it → `brain.LoadManualJson()` which **validates** (unknown fact/control/op/label = clear error) then derives.
 - **Facts are per-module, not global.** Each module declares the facts it reads; a round rolls only the UNION of its mission's modules' facts. A two-module mission generates two facts, not the whole catalog. Unused facts are free red herrings — a red herring must be a deliberate mission choice, never catalog fallout.
 
-### Campaign, missions, difficulty (KTANE mission model)
-Difficulty is **two hand-authored knobs and nothing else**: *which* module types are on the dashboard, and *how many*. There is deliberately **no cost/budget/tier system** — a module type's complexity is inherent to the type and lives in the module's own file; the campaign only picks ids.
-- **Authoring rule:** introduce exactly ONE new module type per mission, keep it beside types the crew already knows, and only raise the count once the new type is taught. Unfilled dashboard slots stay blank — an early mission is meant to *look* easy.
-- **Mission** = `{id, name, time, lives, modules:[ids]}`. Ids only; adding a module type never touches `campaign.gd`, adding a mission never touches a module file.
+### Round = parameters + a seed (DECIDED, replaces the hand-authored mission list)
+**A round is a set of PARAMETERS plus a SEED. The seed generates everything; the parameters only bound what it may generate.** There is no enumerated mission list — nothing anywhere names "mission m02". `data/campaign.gd` (`CockpitCampaign`) is to be **deleted**; a generator (`data/mission_gen.gd`) replaces it. Not implemented yet.
+- **THREE categories. Which one a value belongs to is a design decision, not a detail:**
+  - **Round params** — set from outside, **never touch the RNG**: `time`, `lives`, `mode`. Change them → the same seed yields the *same* puzzle under different pressure, so a shared seed still reproduces a flight when the crew re-runs it with a longer clock. Keep them out of the RNG path or this property dies.
+  - **Generation params** — set from outside, and they **bound** the RNG: **module count** and **difficulty**. Change one → the same seed yields a different puzzle, so a campaign seed is only reproducible when recorded *together with its params*.
+  - **Generated from the seed** — everything else, and nothing outside decides it: *which* module types are drawn, *which slot* each lands in, and each module's **internal content** (a password module's 18 letters, a keypad's button count) plus every **answer**. Answers are derived, never authored.
+- **`difficulty` does exactly ONE thing: restrict which module types may be drawn.** No score, no weighting, no budget. Each module declares its own appearance threshold in its own file (`data/modules/<id>.gd`), so adding a type never edits a central table. Default: every type allowed.
+- **Two entry points, one generator.** Campaign = curated `(seed, params)` pairs, hand-picked and stable — KTANE's "missions", except the content is generated, not authored. Free play / lobby = the players set the params (lives, time, module count), the seed is random.
+- **Levels / progression: deferred.** Not designed. Do not invent a level system until asked — `difficulty` is a parameter, not a progression.
+- **Module count may exceed the number of registered types**, so duplicate types must be allowed on one dashboard. `ControlStore.register_control` refuses a duplicate id (`control_store.gd:18`), so instances need a per-instance suffix (`dial_1`, `dial_2`). This is the blocker for the module-count parameter — solve it there, not with a "no repeats" rule.
+- **Authoring rule (unchanged, now the generator's job):** the crew must meet one new module type at a time. Unfilled dashboard slots stay blank — a small module count is meant to *look* easy.
 - **Lives = LAND attempts.** `lives: 1` → a wrong configuration crashes on the first press. A failed attempt costs **a life and nothing else** — no hidden clock penalty, no mid-round surprises (the clock already supplies the tension; the time spent re-checking is the natural, visible cost). The clock hitting zero is a crash regardless of lives left.
 - **LAND has three outcomes:** `LANDED` (all modules ok) / `GO_AROUND` (wrong, lives remain) / `CRASHED` (wrong on the last life, or clock zero). UI word for a spent life is **"GO-AROUND"**.
 - **Modes are pure modifiers** (`lives_bonus`, `time_scale`, `feedback`), all announced before the round starts. `effective_lives` is floored at 1 — a mode may only ever be kinder than the mission.
@@ -132,7 +139,7 @@ Check returns detail, not just a bool: `{id, ok, expected, actual}` per module, 
 ### Key decisions this session
 - **Solo-first prototype**, on-screen manual. Networking (2-player split pilot/tower screens) deferred until the loop is proven fun.
 - **Central store = the brain's facts, read by name.** No scattered global getters. Rules (data) reference facts by name; only display nodes read a fact through the brain. Reads are safe; scattered mutable global state is the thing to avoid.
-- **No difficulty budget / cost / tier system.** Considered and rejected: stay literally on the KTANE model — hand-authored missions naming module ids, difficulty emerging from which types × how many.
+- **No hand-authored mission list.** A round is parameters + a seed; the seed generates the whole round. Campaign missions are curated `(seed, params)` pairs, not authored content. Difficulty comes from the generation params (module count, allowed types), never from a tier/cost/budget system.
 - **No punitive surprises.** A failed LAND costs a life only. Anything a mode changes is shown before the round starts. The clock is the pressure; nothing else deducts silently.
 - **Raw CSG placeholders** for all geometry; art last (the art direction — chunky low-poly, readability-first — means the placeholder→final gap is small).
 - **Restart discipline** (see MCP rules above): clean quit only, never force-kill, never two instances.
@@ -144,12 +151,13 @@ A′ data-layer + C# brain · B round loop (scenario→manual→timer→LAND→r
 1. ~~**Wire the data layer into the round**~~ — DONE, in `scripts/flight.gd`: mission + mode → `ModuleRegistry.build_manual_data(mission.modules)` → brain, clock/lives from `CockpitModes.effective_*`. `data/manual.gd`, `scripts/cockpit_manager.gd` and `scenes/cockpit.tscn` are deleted; `Game.COCKPIT_LEGACY` is gone.
 2. **C# batch (one rebuild, one restart):** module check strategies (`state_match` / `value_match` + `{id, ok, expected, actual}` results) · `AttemptLand()` owning the lives counter and returning `LANDED`/`GO_AROUND`/`CRASHED` · `SelfTest()` coverage for the go-around path. Front-load everything here — batch it.
 3. **Modular prefab cockpit + spawner + slot grid** — each module type is its own prefab scene; the cockpit holds slot markers with footprints; the spawner instantiates the mission's modules and leaves the rest **blank**. Turns the fixed cockpit into the procedural, difficulty-signalling dashboard.
-4. Mission select + campaign progression UI; per-mission recap with the full module breakdown.
+4. **Round generator** (`data/mission_gen.gd`): params + seed → round, replacing `data/campaign.gd`. Then the lobby/free-play param screen (lives, time, module count) and the curated campaign seed list. Per-round recap with the full module breakdown.
 5. Complex module types (destination entry, coordinate calculation) — by then, registry entries with a `value_match` check and zero engine change.
 6. Failure events (stuck / inverted / lying-indicator controls) — implement in the input→state pipeline (can be GDScript, no C# rebuild).
 7. 2-player networking (host-client P2P) + split screens + lobby — only after the loop is proven.
 8. Auto-generated manuals from modules; more modules/facts (all data now).
 - Keep an **`IDEAS.md`** backlog, tagged core/content/polish; implement core-affecting ideas early, park content/polish for the content phase.
+- **`WIP.md` = the work in progress.** READ IT FIRST at the start of a session: it holds where the current build stopped, the known blockers with file:line, and how this developer wants to be guided. Decisions belong in `CLAUDE.md`, unfinished state belongs in `WIP.md`. Keep it updated as the chantier moves and empty it when the chantier ships.
 
 ### Cleanup
 Leftover test assets to delete when convenient: `res://test_sphere.tscn`, `res://sphere_mesh.tres`.
