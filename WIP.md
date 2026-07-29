@@ -3,166 +3,152 @@
 État du travail non terminé. Les **décisions** vivent dans `CLAUDE.md` ; ce fichier ne garde que
 « où on s'est arrêté ». À vider quand le chantier est fini.
 
-Dernière mise à jour : session du 29/07/2026.
+Dernière mise à jour : session du 29/07/2026 (2ᵉ session de la journée).
 
-**Cette session :** switch/dial/lever et `data/campaign.gd` **supprimés** ; registry vide ; projet
-non-runnable jusqu'à ce qu'`airport_code` soit enregistré. Le modèle de pick est décidé : **Modèle B**
-(edgework par instance, manuel générique fixe par type, ids d'instance — spec dans `CLAUDE.md`,
-« Module instances & per-instance edgework »). Pour `airport_code` : 3 molettes **fixes** (codes
-IATA à 3 lettres) ; l'edgework tiré par instance = **les 6 lettres de chaque molette**. Le manuel
-est générique et fixe (le pilote lit ses 18 lettres, la tour cherche l'unique code épelable).
-(Le « 3–6 boutons » discuté était un AUTRE type hypothétique, pas ce module.)
+**Cette session :** le module `airport_code` **fonctionne de bout en bout**. Plateau tiré de la
+seed → 3 molettes cliquables → Submit jugé par le brain → lampe éteinte / rouge / verte →
+verrou. Le projet est redevenu runnable. Le chantier « module AIRPORT CODE » est donc
+essentiellement **fini** ; ce qui reste est du contenu et le manuel de la tour.
 
 ---
 
-## Chantier : module AIRPORT CODE (molettes de lettres, type Password de KTANE)
+## Chantier : module AIRPORT CODE — FAIT
 
 Le pilote lit 18 lettres à la tour. La tour cherche le **seul** code aéroport que ces molettes
-peuvent épeler, et le fait composer. La réponse n'est pas un fact : elle est **dérivée** des
-molettes générées.
+peuvent épeler, et le fait composer. La réponse est **dérivée** des molettes générées.
 
-C'est le premier module dont le **contenu interne est généré** et dont la **réponse sort de ce
-contenu** (les autres lisent un fact et appliquent une règle).
+### Le pipeline complet, tel qu'il tourne aujourd'hui
 
-### Fait
-
-- `models/modules/password.glb` — modèle 3D
-- `scenes/modules/airport_code.tscn` — 3 molettes (`Digit1/2/3` × `Minus`/`Plus`), un `Submit`,
-  3 `Label3D` d'affichage (texte `"A"` en dur pour l'instant), une lumière, une caméra
-- `scenes/modules/airport_code_view.gd` — la VUE (stub vide pour l'instant ; câblera labels + boutons ±)
-- `data/facts.gd` — `AIRPORTS` est devenu une liste d'objets `{code, name}` + `AIRPORT_KEY`,
-  `airport_codes()` (ce que consommera le générateur), `airport_name(code)` (pour l'affichage)
-- `scripts/flight.gd:212` — la seed s'affiche dans le Label `UI/Status`
+```
+Mission (data/mission.gd, typée)
+  → ModuleSpawner.spawn()                     instancie le prefab dans le slot
+  → ModuleRegistry.roll_edgework(id, rng)     → ModuleAirportCode.generate(pool, rng)
+  → brain.set_module_edgework()               le plateau + la réponse, côté autorité
+  → brain.register_control("<id>/w0..w2")     1 module = 3 controls, états = les lettres
+  → vue.bind_wheels(module_id, ids, wheels)   la vue ne reçoit QUE les lettres
+  → brain.generate_flight(seed)               (efface le required — d'où l'ordre)
+  → flight._apply_module_answers()            set_required × 3 depuis target_index
+```
 
 ### Fait cette session
 
-- `data/modules/airport_code_logic.gd` (classe `ModuleAirportCode`) — la **fiche** `def()` (Modèle B : `kind "wheels"`, `check
-  "state_match"`, `wheel_count 3`, `wheel_size 6`, `max_instances 2`) **+ le générateur**
-  `generate(codes, rng) -> {target, wheels:[[6]×3], target_index, start}` **+ `self_test()`**.
-  Gate ajouté dans `scripts/tests/brain_test.gd`. Algorithme validé hors-moteur : 5000 seeds
-  passent (unicité, `target_index` correct, pas de doublon, départ ≠ solution, déterminisme),
-  1.05 tirage moyen. Le `check` retenu est `state_match` par molette (pas `value_match`) : la
-  réponse d'une molette = l'index de sa lettre cible, donc le moteur générique valide sans cas
-  spécial. La seule nouveauté vit dans `generate()`.
-- **Caveat contenu** : pool à 6 codes → peu de tension (~0.5 « faux espoir »). Le porter à 25–40
-  (voir plus bas) avant de juger le fun.
-- **Store de modules** (général, tous types) : `scripts/core/module_store.gd` (`ModuleStore`).
-  Une MAP keyée par id, un **record par module** `{id, type, status}` (+ `_order`). API brain :
-  `register_module(id, type)` / `module_type` / `module_ids` / `module_status` / `mark_module` /
-  `reset_module` / `module_correct` + signal `module_status_changed`. `status` : `null` (pas
-  essayé) / `"false"` / `"correct"`. Store vidé à chaque `generate_flight`. Testé dans
-  `CockpitBrain.self_test()`. **À compléter au câblage** : le record gagnera `control_ids` + `slot`
-  (remplis par le spawner), un getter d'assemblage `module_view(id)` (join ModuleStore+ControlStore
-  pour la lecture/recap), l'appel à `register_module` par le spawner, `mark_module` au Submit, et la
-  **lumière** abonnée à `module_status_changed`.
+- **`Mission` est un type** (`data/mission.gd`, `class_name Mission extends RefCounted`,
+  `_init` exige `id`/`modules`/`time`/`lives`). `flight.gd` et `data/modes.gd` retypés ; tous
+  les `.get("clé", défaut)` supprimés. `MissionParams` a été envisagé puis abandonné (GDScript
+  n'a pas d'arguments nommés, donc l'objet n'achetait que du type, pas de lisibilité à l'appel).
+- **`_resolve_mission()`** (`flight.gd:74`) retourne une mission **provisoire** codée en dur —
+  à remplacer par `data/mission_gen.gd`.
+- **`ModuleRegistry`** : `airport_code` enregistré dans `defs()` ; `KIND_STATES`/`KIND_WHEELS`
+  avec **deux validateurs** (`_validate_states_module` / `_validate_wheels_module`) ;
+  `GEN_AIRPORT_WHEELS` + `roll_edgework()` (le point de rencontre pool ↔ algorithme) ;
+  `wheel_control_id()` (seul endroit où `<module>/w<i>` s'écrit) ; `_validate_prefab()` accepte
+  une racine `Node3D` pour un module à molettes ; `build_manual_data()` **exclut** les modules à
+  molettes (ils n'ont pas de liste de décision — voir `CLAUDE.md`, « The manual is a BOOK »).
+- **`ControlStore.request_cycle(id, step := 1)`** — le bouton `−` existe. Double modulo, parce
+  qu'en GDScript `-1 % 6 == -1`.
+- **`ModuleStore`** : le record gagne `edgework` + `control_ids`, avec copies profondes en
+  sortie (l'edgework contient la réponse). `CockpitBrain` délègue les 4 accesseurs et gagne
+  `module_matches_required()` — *« est-il correct MAINTENANT »*, à ne pas confondre avec
+  `module_correct()`, *« a-t-il été marqué correct »*.
+- **`generate_flight()` n'appelle plus `_modules.clear()`** : le jeu de modules est établi par le
+  spawn, qui a lieu avant. Même famille de piège que `clear_required()`.
+- **`flight.gd`** : `_modules` / `_control_owner` / `_control_module` remplacent `_controls` ;
+  `_build_dashboard()` aiguille sur `kind` ; `_register_wheels_module()` fait le « 1 module =
+  N controls » ; `_apply_module_answers()` pose les réponses **après** `generate_flight` ;
+  `_on_submit_requested()` ; `_on_module_status_changed()` ; le **verrou** dans
+  `_on_cycle_requested()`. `_brain` est typé `CockpitBrain` (plus de `Variant`).
+- **`cockpit_control.gd`** : `cycle_requested(id, step)` — une seule forme de signal pour tous
+  les controls, émise avec `1`.
+- **`airport_code_view.gd`** : les 3 `Label3D` lisent leur lettre, les 6 boutons `±` passent par
+  un seul handler (`_on_button_input.bind(wheel, step)`), `Submit`, et la lampe
+  (`apply_module_status`). La vue ne reçoit jamais `target`.
+- **Orientation** : le `.glb` arrivait couché (Blender Z-up → Godot Y-up). Corrigé sur la racine
+  du prefab `airport_code.tscn`.
+- **`max_instances` passé à 1** : deux exemplaires = deux fois la même conversation. La variété
+  doit venir d'un autre TYPE de module.
+- **Panneau debug F3** : dans `UI/Status` (`flight.gd:_debug_text()`), donc aucune modification
+  de scène. Affiche seed, les 6 lettres de chaque molette, la lettre attendue, le code cible, le
+  code composé, valide oui/non. Lit **uniquement** le brain, jamais la vue.
 
-### Pas fait
+### Ce qui reste sur ce module
 
-1. `ControlStore.request_cycle(id, step)` — le bouton `−` n'existe pas, seul `+1` est possible.
-2. `ModuleRegistry` : brancher `kind "wheels"` — ajouter `airport_code` à `defs()` et faire
-   `validate()` valider un module généré (champs `wheel_*` + scène `Node3D`) au lieu d'exiger
-   états/règles/racine `CockpitControl`.
-3. **1 module = N controls** : le spawner instancie 1 prefab mais enregistre 3 molettes-controls
-   (`airport_code_1/w0..w2`) ; ids d'instance suffixés (débloque `control_store.gd:18`).
-4. Câblage dans `flight.gd` : `generate` avec `_seed`, `register_control` × 3, `set_required` × 3.
-5. La scène : les 3 `Label3D` doivent lire la lettre courante au lieu du `"A"` en dur ;
-   les 6 boutons `±` doivent appeler `request_cycle`.
-6. Panneau debug F3 (voir plus bas).
+1. **Le pool doit passer de 6 à 25-40 codes** (`data/facts.gd:35`). Le module est correct mais
+   sans tension : ~0,5 « faux espoir » à 6 codes, ~3,9 à 30. **C'est le vrai réglage de
+   difficulté** (KTANE Password utilise 35 mots). Mesuré, ne pas refaire les simulations.
+2. **La page du manuel** : prose générique + le pool imprimé (la table de consultation de la
+   tour). Voir le chantier « livre » ci-dessous.
+3. Lien statut module ↔ LAND / recap : aujourd'hui le Submit marque le module, mais `_attempt_land`
+   ne regarde encore que `brain.is_valid()` sur tous les controls.
 
 ### Le générateur — conclusions déjà mesurées (ne pas refaire les simulations)
 
-Cible `T = t₁t₂t₃`. Trois molettes de 6 lettres, `tᵢ` sur la molette `i`. Un code du pool est
-épelable si ses 3 lettres sont chacune sur sa molette. **Il en faut exactement un.**
+Cible `T = t₁t₂t₃`. Trois molettes de 6 lettres. Un code du pool est épelable si ses 3 lettres
+sont chacune sur sa molette. **Il en faut exactement un.** Méthode : tirer, vérifier,
+recommencer. Sur un pool de 30 codes réels : **1,5 tirage en moyenne**, pire cas mesuré = 1 seule
+lettre à exclure obligatoirement, et ~3,9 faux espoirs gratuits par tirage (codes dont 2 lettres
+sur 3 sont disponibles). Détails : deux molettes peuvent porter la même lettre ; la même lettre
+deux fois sur UNE molette gaspille un emplacement ; le départ n'est jamais déjà la solution.
 
-Méthode retenue : **tirer, vérifier, recommencer.** Remplir chaque molette avec la lettre de la
-cible + 5 lettres au hasard, compter les codes épelables dans le pool, rejeter si ≠ 1.
+### Décision : la cible n'est PAS `arriving_airport`
 
-Mesuré sur un pool de 30 codes réels :
+Ce fact est affiché sur un placard (anchor `side_panel`) : le pilote lirait la solution sur le
+mur. Le module a sa **propre** cible, tirée de la seed. Une mission « destination inconnue »
+(placard retiré, le module répond à la question) est un chantier séparé.
 
-- **1,5 tirage en moyenne** avant unicité → le rejet coûte zéro
-- l'essentiel des rejets vient des codes **très différents** de la cible : chacun n'a qu'1 chance
-  sur 125 de passer, mais il y en a ~27 (cible `OLY`, et `BCN` devient épelable par accident)
-- les paires du type `OLY`/`ORY` (2 lettres identiques **aux mêmes positions**) sont rares (3 paires
-  sur 30 codes) mais imposent une exclusion précise : `R` interdit sur la molette 2
-- pire cas mesuré : **1 seule lettre à exclure obligatoirement** → 25 lettres restantes pour 5
-  emplacements, aucune cible impossible
-- effet de bord gratuit : ~3,9 « faux espoirs » par tirage (codes dont 2 lettres sur 3 sont
-  disponibles). C'est ça qui fait travailler la tour. **C'est le vrai réglage de difficulté**,
-  l'unicité n'est que la correction.
+---
 
-Conséquence de contenu : **le pool doit passer de 6 à 25–40 codes**, sinon le module est correct
-mais sans tension (0,5 faux espoir avec 6 codes). KTANE Password utilise 35 mots.
+## Chantier : le livre du manuel (décidé, rien écrit)
 
-Détails : deux molettes **peuvent** porter la même lettre (aucun effet) ; la même lettre deux fois
-sur **une** molette gaspille un emplacement. Rotation de départ aléatoire, et vérifier que la
-combinaison affichée au départ n'est pas déjà la solution.
+Décision complète dans `CLAUDE.md`, « The manual is a BOOK, not a round summary ». Résumé :
+`manual_text()` doit rendre **tous** les types enregistrés, toujours, et non les modules du
+round — sinon la tour voit le tableau de bord et le pilote n'a plus rien à décrire.
 
-### Décision prise : la cible n'est PAS `arriving_airport`
-
-Ce fact est affiché sur un placard (`data/facts.gd`, anchor `side_panel`) : le pilote lirait la
-solution sur le mur. Le module a donc sa **propre** cible, tirée de la seed. Une mission
-« destination inconnue » (placard retiré, le module répond à la question) est un chantier séparé.
-
-### Blocages connus
-
-- **`flight.gd:91`** — `var control: CockpitControl = _controls[module_id]` exige que la racine du
-  prefab soit un `CockpitControl`. Celle de `airport_code.tscn` est un `Node3D`. Et plus
-  profondément : 1 `CockpitControl` = 1 control, or ce module en contient **3** (les molettes).
-  Le contrat spawner→brain doit gérer « 1 module = N controls ». **Tant que l'id n'est pas dans
-  `ModuleRegistry.defs()`, rien ne casse** — c'est pour ça que la fiche vient avant le câblage.
-- **`cockpit_brain.gd:103`** — `generate_flight()` appelle `clear_required()`. Poser les lettres
-  cibles **avant** cet appel les efface. Les poser après.
-- **`module_registry.gd` `validate()`** rejettera ce module sur 3 points (racine pas
-  `CockpitControl`, `states` ≥ 2 exigés, liste de décision devant finir par un `else`). Normal :
-  ce module n'a ni états ni règles. À traiter avec le contrat ci-dessus.
-- **`control_store.gd:18`** refuse un id de control en double → deux modules du même type sont
-  impossibles aujourd'hui. Bloque le paramètre « nombre de modules » (voir `CLAUDE.md`).
+À faire : un rendu « une section par type » indépendant du round, avec pour `airport_code` de la
+prose + **le pool imprimé**. La charge de dérivation (`build_manual_data`) reste par round, elle.
 
 ---
 
 ## Chantier : générateur de round (`data/mission_gen.gd`)
 
-Décidé cette session, **rien écrit**. La spec complète est dans `CLAUDE.md`, section
-« Round = parameters + a seed ». Résumé de ce qu'il reste à faire :
+Spec dans `CLAUDE.md`, « Round = parameters + a seed ». Rien écrit.
 
-1. écrire `data/mission_gen.gd` : `generate(seed, params) -> {time, lives, modules[]}` ; pioche des
-   **instances** (doublons autorisés, `max_instances` respecté) — pas un type par slot
-2. ajouter le seuil d'apparition (`difficulty`) + `max_instances` dans la fiche d'`airport_code`
-   (seul type prévu ; les 3 placeholders sont supprimés)
-
-FAIT cette session : `data/campaign.gd` supprimé, et `flight.gd` ne référence plus
-`mission_index` / `mission_id` (`_resolve_mission()` retourne `{}` en attendant le générateur ;
-`CockpitCampaign.validate()` retiré de `_report_data_errors`).
+1. `generate(seed, params) -> Mission` ; pioche des **instances** (doublons autorisés,
+   `max_instances` respecté)
+2. remplacer `flight.gd:74` `_resolve_mission()`, aujourd'hui codé en dur
+3. ajouter le seuil d'apparition (`difficulty`) dans la fiche d'`airport_code`
+4. quand les suffixes d'instance arrivent (`airport_code_1`), `ModuleRegistry.roll_edgework()`
+   devra recevoir l'id de **TYPE**, pas l'id d'instance (commentaire déjà posé dans la fonction)
 
 ---
 
-## Panneau debug
+## Autres restes connus
 
-Pas encore construit. Ce qui existe déjà et sert de panneau debug : le Label `UI/Status` dans
-`scenes/flight.tscn`, rempli par `scripts/flight.gd:202` `_refresh_status()` — il liste la seed,
-les facts et l'état de chaque control.
-
-Prévu : un panneau séparé, **caché par défaut**, basculé par F3. Contenu : seed, params, molettes
-(les 6 lettres de chacune), lettre attendue, code cible, code composé, valide oui/non.
-
-Caché par défaut parce que c'est le seul endroit du jeu qui **montre la solution**.
-
-Il ne doit lire les réponses que **depuis le brain**, jamais depuis le spawner : au multijoueur le
-brain sera côté serveur et le spawner côté client, et une réponse passée par le client est
-trichable.
+- **`module_spawner.gd:104`** : un module multi-cellules est ancré sur le marqueur de sa
+  **première** cellule, donc un `footprint [2,1]` déborde de 0,25 vers la droite. Le centrage est
+  un chantier du spawner.
+- **Panneau debug** : il vit dans `UI/Status`. Le sortir dans son propre panneau, toujours caché
+  par défaut, quand le HUD sera repris.
+- **`scripts/tests/brain_test.gd`** : `CockpitBrain.self_test()` ne couvre pas encore l'edgework,
+  `module_matches_required`, ni le chemin go-around.
+- Assets de test à supprimer : `res://test_sphere.tscn`, `res://sphere_mesh.tres`.
 
 ---
 
 ## Méthode de travail (à respecter à la reprise)
 
-Le développeur **apprend Godot et GDScript** sur ce projet. Il veut **taper le code lui-même** et
-être guidé pas à pas.
+**Changé cette session.** Le développeur ne veut plus taper le code lui-même : il fournira des
+**modèles 3D grossiers** et décrira **ce que chaque module doit faire**, et Claude code.
 
-- une seule étape à la fois, et attendre son retour avant la suivante
-- **explications courtes.** Un pavé le perd : il a des questions dès le premier tiers
-- donner les chemins précis dans l'éditeur (panneau FileSystem, Inspecteur, onglet Script) et les
-  numéros de ligne, pas juste des noms de fonctions
-- l'indentation GDScript est en **tabulations** — piège récurrent
+- Claude écrit le code (`Write`/`Edit`), le développeur fait la 3D et le playtest
+- **expliquer court.** Un pavé le perd : il a des questions dès le premier tiers
+- il apprend Godot/GDScript en lisant, donc dire *pourquoi* un choix, pas seulement quoi
+- donner les chemins précis dans l'éditeur (FileSystem, Inspecteur, onglet Script) et les
+  numéros de ligne
+- l'indentation GDScript est en **tabulations** ; l'éditeur Godot ré-indente ce qu'on y colle,
+  d'où des collages multipliés (1 → 3 → 5 tabs) — si ça arrive, Claude réécrit le fichier
 - **le `print()` du jeu lancé n'est pas lisible par Claude** (limite MCP). Le développeur lance
-  avec F5 et lit le panneau **Sortie** lui-même, puis rapporte
-- pour rejouer un vol : nœud `Flight` de `scenes/flight.tscn` → Inspecteur → champ **Fixed Seed**
+  avec F5, lit le panneau **Sortie**, et rapporte
+- Claude n'a pas eu les outils MCP moteur cette session (pas de screenshot) : pour tout ce qui
+  est visuel, demander une **capture d'écran** plutôt que déduire des transforms
+- pour rejouer un vol : nœud `Flight` de `scenes/flight.tscn` → Inspecteur → **Fixed Seed**
+- **F3** en jeu affiche la réponse
