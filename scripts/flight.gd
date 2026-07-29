@@ -216,7 +216,8 @@ func _refresh_status() -> void:
 	var rows: Array[String] = []
 	for id in _controls:
 		rows.append("  %s: %s" % [id, _brain.state_label(id, _brain.get_state(id))])
-	lbl.text = "FLIGHT (read to tower):\n" + "\n".join(facts) + "\n\nCOCKPIT:\n" + "\n".join(rows)
+	lbl.text = "SEED: %d\n\nFLIGHT (read to tower):\n" % _seed + "\n".join(facts) + "\n\nCOCKPIT:\n" + "\n".join(rows)
+	
 
 func _refresh_timer() -> void:
 	var lbl := get_node_or_null(timer_label_path)
