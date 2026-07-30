@@ -42,14 +42,55 @@ chemin (state 5 → 0, label 'A' → 'U') et `is_action_pressed("interact")` ré
   et Godot consommait ensuite TAB pour `ui_focus_next` avant `camera_rig` — le cycle mourait dès la
   première tentative d'atterrissage. Texte d'aide réécrit.
 
-**Sonde `scripts/tests/focus_probe.gd`** (jetable, à garder ou supprimer — décision en attente).
-Rejoue la règle sans rendu, 9 vérifications, toutes vertes : le rayon touche le centre du module et
-résout SON slot · les boutons sont inertes en overview · le clic zoome · le module devient
-interactif · le bouton tourne en focus · un clic en focus ne redéplace pas la caméra · une cellule
-vide refuse le focus · **les 12 cellules résolvent chacune sur elle-même** (pas de diaphonie).
-
 **Reste à playtester (F5)** : le ressenti du zoom, et surtout que le clic qui zoome ne parte pas
 « à côté » — les plaques sont dimensionnées d'après l'écart entre slots, jamais vues à l'écran.
+
+---
+
+## Chantier : molettes qui affichaient « AAA » — FAIT (testé vert)
+
+**Le symptôme, vu au playtest :** les molettes montraient AAA au départ, la cible était BCN, et MAD
+semblait épelable aussi. **Le générateur n'y était pour rien** (mesuré : 400 plateaux, tous avec
+exactement UN code épelable). C'était l'AFFICHAGE, et la conséquence était grave.
+
+**La cause :** dans `_build_dashboard`, `state_changed` était branché APRÈS la boucle
+d'enregistrement — or enregistrer un module à molettes POSE déjà des états (la rotation de départ
+tirée de la seed). Ces `set_state` étaient émis dans le vide, et les molettes gardaient le « A »
+écrit en dur dans `airport_code.tscn`. Bug présent depuis la construction du module (29/07), pas
+depuis le refactor instance/type.
+
+**Pourquoi c'est grave et pas cosmétique :** le pilote lisait à la tour un A qui n'était sur AUCUNE
+molette, et ne voyait jamais la lettre réellement présente sous ses yeux (elle n'apparaissait
+qu'après un tour complet). Donc 18 lettres fausses → la tour cherche dans un jeu de lettres qui
+n'existe pas → de faux codes deviennent « possibles » (MAD) et le vrai devient introuvable.
+**C'est la classe de bug la plus dangereuse du projet : un round faux qui ressemble à un round
+juste.**
+
+**Le correctif :** les deux `_brain.connect(...)` remontés AVANT la boucle (`flight.gd:108`), avec le
+commentaire qui dit pourquoi l'ordre compte. Un module à état unique ne souffrait pas du problème
+parce qu'il peint explicitement (`control.apply_state(...)`) ; les molettes, elles, dépendaient du
+signal.
+
+---
+
+## Les tests : DEUX fichiers, deux couches (à lancer avant de dire qu'un chantier tient)
+
+```
+godot --headless --path . --script res://scripts/tests/brain_test.gd     # la LOGIQUE
+godot --headless --path . --script res://scripts/tests/cockpit_test.gd   # le CÂBLAGE scène
+```
+Les deux sortent 0 en vert. Aucun GPU nécessaire, et ils tournent avec l'éditeur ouvert (process
+séparé). **Ils n'impriment rien avant la fin : une erreur de parse les fait boucler sans quitter —
+si la main ne revient pas, lire le fichier de sortie, le « Parse Error » y est.**
+
+`cockpit_test.gd` est né des deux bugs de cette session, que la couche data ne pouvait pas voir. Il
+garde deux invariants :
+- **FIDÉLITÉ** — ce que le cockpit MONTRE == ce que le brain DIT, avant tout clic et après chaque
+  pas. C'est le filet du bug « AAA ».
+- **LE VERROU** — en overview le clic choisit et n'actionne rien ; en focus il n'actionne que le
+  module zoomé ; une cellule vide refuse le focus ; les 12 cellules résolvent chacune sur elle-même
+  (pas de diaphonie de visée).
+Plus l'unicité du code épelable, sur le plateau du round ET sur 400 tirages.
 
 ---
 

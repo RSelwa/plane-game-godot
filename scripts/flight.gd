@@ -105,6 +105,15 @@ func _build_dashboard() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed
 	var focus_slots: Array = []
+	## BRANCHER AVANT D'ENREGISTRER. L'enregistrement d'un module à molettes POSE déjà des états (la
+	## rotation de départ tirée de la seed), et un état posé avant la connexion est émis dans le vide :
+	## les molettes gardaient alors le « A » écrit en dur dans le prefab. Le pilote lisait donc à la
+	## tour un A qui n'était sur aucune molette, et jamais la lettre réellement présente sous ses yeux
+	## — soit 18 lettres fausses, donc un code cible faux et de faux codes rendus possibles.
+	if not _brain.is_connected("state_changed", _on_state_changed):
+		_brain.connect("state_changed", _on_state_changed)
+	if not _brain.is_connected("module_status_changed", _on_module_status_changed):
+		_brain.connect("module_status_changed", _on_module_status_changed)
 	## On itère les INSTANCES de la mission, pas la table de spawn : c'est là que vivent les deux
 	## ids. `inst.id` clé tout (brain, controls, verrou, lampe), `inst.type` ne sert qu'à retrouver
 	## la fiche et à tirer l'edgework. Ordre = ordre de la mission, donc déterministe.
@@ -121,10 +130,6 @@ func _build_dashboard() -> void:
 		var slot := node.get_parent()
 		if slot is Node3D:
 			focus_slots.append(slot)
-	if not _brain.is_connected("state_changed", _on_state_changed):
-		_brain.connect("state_changed", _on_state_changed)
-	if not _brain.is_connected("module_status_changed", _on_module_status_changed):
-		_brain.connect("module_status_changed", _on_module_status_changed)
 	if _camera != null:
 		if not _camera.focus_changed.is_connected(_on_focus_changed):
 			_camera.focus_changed.connect(_on_focus_changed)
