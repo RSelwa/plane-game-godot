@@ -5,8 +5,51 @@
 
 Dernière mise à jour : session du 30/07/2026 (3ᵉ).
 
-**Reprendre ici :** rien de commencé. Le chantier #1 est FINI et testé vert. Prochain morceau au
-choix : un **nouveau TYPE de module**, ou `data/mission_gen.gd`, ou le livre du manuel.
+**Reprendre ici :** rien de commencé. Chantiers #1 et « règle d'interaction » FINIS et testés vert.
+Prochain morceau au choix : un **nouveau TYPE de module**, ou `data/mission_gen.gd`, ou le livre du
+manuel. **À FAIRE AU PROCHAIN LANCEMENT :** playtest de la règle d'interaction (F5), voir ci-dessous.
+
+---
+
+## Chantier : règle d'interaction « zoom puis actionne » — FAIT (testé vert, pas encore playtesté)
+
+**Le bug :** depuis `34b5d1b` (« better controls », 30/07 matin, jamais playtesté) le module était
+inerte. Le verrou de focus était bon, mais on ne pouvait pas l'OUVRIR : le focus se prenait au clic
+DROIT, par un rayon physique, et les seuls corps cliquables de la scène étaient les 7 petits
+volumes du module (6 boutons ± + Submit). Viser le corps du module, ses lettres, le panneau ou une
+cellule vide ne touchait rien → jamais de focus → jamais d'interaction.
+**Ce n'était pas le refactor instance/type** : sonde à l'appui, le clic traversait déjà tout le
+chemin (state 5 → 0, label 'A' → 'U') et `is_action_pressed("interact")` répondait bien.
+
+**La règle voulue, désormais en place :** UN seul bouton pour les deux gestes.
+- **overview** : clic gauche sur un module → il ZOOME dessus. Les boutons des modules ignorent ce
+  même clic, donc celui qui zoome n'actionne jamais rien au passage.
+- **focus** : clic gauche sur les boutons du module zoomé, et **de lui seul**.
+- Échap revient en overview · Tab/bumpers changent de module · clic droit = regarder autour.
+
+**Comment :**
+- **`scenes/dashboard.tscn`** : un `FocusBody` (StaticBody3D + BoxShape3D partagé, invisible) sous
+  **chacun des 12 slots**, 0.46 × 0.38 posé 3 cm DERRIÈRE le module. Le focus devient une affaire de
+  TABLEAU DE BORD : tout futur type de module en hérite sans rien déclarer. Le rayon rendant le
+  contact le plus proche, viser un bouton donne le bouton, viser ailleurs donne le slot.
+- **`camera_rig.gd`** : `interact` traité en tête de `_unhandled_input`, et **ignoré quand on est
+  déjà en focus** (sinon chaque clic sur un bouton relancerait un focus). `camera_look` redevient du
+  pur regard : `click_slop_px` / `_drag_px` supprimés, ils ne servaient qu'au clic droit focus.
+- **`focus_on()`** refuse un slot absent de `_focus_targets` — maintenant que toute la cellule est
+  cliquable, sans ce filtre un clic sur une plaque vide zoomerait sur du vide. Il pose aussi
+  `_focus_index`, donc Tab reprend au bon endroit après un clic.
+- **`flight.tscn`** : `LandButton.focus_mode = 0`. Sinon cliquer LAND donnait le focus UI au bouton
+  et Godot consommait ensuite TAB pour `ui_focus_next` avant `camera_rig` — le cycle mourait dès la
+  première tentative d'atterrissage. Texte d'aide réécrit.
+
+**Sonde `scripts/tests/focus_probe.gd`** (jetable, à garder ou supprimer — décision en attente).
+Rejoue la règle sans rendu, 9 vérifications, toutes vertes : le rayon touche le centre du module et
+résout SON slot · les boutons sont inertes en overview · le clic zoome · le module devient
+interactif · le bouton tourne en focus · un clic en focus ne redéplace pas la caméra · une cellule
+vide refuse le focus · **les 12 cellules résolvent chacune sur elle-même** (pas de diaphonie).
+
+**Reste à playtester (F5)** : le ressenti du zoom, et surtout que le clic qui zoome ne parte pas
+« à côté » — les plaques sont dimensionnées d'après l'écart entre slots, jamais vues à l'écran.
 
 ---
 

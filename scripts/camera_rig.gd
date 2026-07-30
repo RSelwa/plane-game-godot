@@ -11,12 +11,17 @@ class_name CockpitCameraRig
 ##
 ## Every binding goes through an InputMap ACTION, never a raw key or button: adding a gamepad
 ## (or letting the player rebind) is then a bind in project.godot, not a change here.
-##   camera_look (RMB, hold)  = free-look; a click with no drag focuses the module under the cursor
+##   interact (LMB / A)        = OVERVIEW: zoom onto the module under the cursor.
+##                               FOCUSED: belongs to that module's buttons, not to the camera.
+##   camera_look (RMB, hold)   = free-look
 ##   cam_look_* (right stick)  = free-look on a pad
 ##   focus_next / focus_prev   = cycle focus (TAB / bumpers) -- swings the head too
 ##   back (ESC / B)            = leave focus
-##   interact (LMB / A)        = operate a control -- consumed by the control, not here
 ## Exiting focus restores the look direction the pilot had, never a reset pose.
+##
+## ONE button for both gestures, and that is the point: the first click zooms, the next one
+## operates. The pilot never has to remember which button does what — they just have to be
+## looking at the module, which is the whole information-asymmetry loop.
 
 signal focus_changed(slot: Node3D)
 
@@ -28,15 +33,12 @@ signal focus_changed(slot: Node3D)
 ## Right-stick look speed, in degrees per second at full deflection.
 @export var stick_sensitivity: float = 140.0
 @export var focus_time: float = 0.3
-## A right-press that travels further than this many pixels counts as a look-drag, not a click.
-@export var click_slop_px: float = 6.0
 
 var _eye := Vector3.ZERO
 var _yaw := 0.0
 var _pitch := 0.0
 
 var _looking := false
-var _drag_px := 0.0
 
 var _focused: Node3D = null
 var _focus_targets: Array[Node3D] = []
@@ -69,25 +71,28 @@ func is_focused() -> bool:
 # ── Input ────────────────────────────────────────────────────────────────────────────
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed("camera_look"):
-		_looking = true
-		_drag_px = 0.0
-		return
-	if event.is_action_released("camera_look"):
-		_looking = false
-		if _drag_px <= click_slop_px and event is InputEventMouseButton:
+	## `interact` en OVERVIEW = zoomer sur le module visé. En FOCUS on ne le regarde même pas :
+	## il appartient aux boutons du module, qui le reçoivent par le picking physique et non par
+	## cette fonction. Sans ce `is_focused()`, chaque clic sur un bouton relancerait un focus.
+	##
+	## Le verrou côté module (set_interactable) fait l'autre moitié du travail : en overview les
+	## boutons refusent le même clic, donc celui qui zoome n'actionne jamais rien au passage.
+	if event.is_action_pressed("interact"):
+		if not is_focused() and event is InputEventMouseButton:
 			_focus_under_cursor((event as InputEventMouseButton).position)
 		return
 
+	if event.is_action_pressed("camera_look"):
+		_looking = true
+		return
+	if event.is_action_released("camera_look"):
+		_looking = false
+		return
+
 	if event is InputEventMouseMotion and _looking and not is_focused():
-		_drag_px += event.relative.length()
 		_yaw = clampf(_yaw - event.relative.x * look_sensitivity, -yaw_limit_deg, yaw_limit_deg)
 		_pitch = clampf(_pitch - event.relative.y * look_sensitivity, pitch_min_deg, pitch_max_deg)
 		_apply_overview()
-		return
-
-	if event is InputEventMouseMotion and _looking:
-		_drag_px += event.relative.length()
 		return
 
 	if event.is_action_pressed("focus_next"):
@@ -126,10 +131,7 @@ func _focus_under_cursor(screen_pos: Vector2) -> void:
 	var hit := space.intersect_ray(params)
 	if hit.is_empty():
 		return
-	var slot := _slot_of(hit.get("collider"))
-	if slot != null:
-		_focus_index = _focus_targets.find(slot)
-		focus_on(slot)
+	focus_on(_slot_of(hit.get("collider")))
 
 ## Walk up from whatever the ray hit to the slot marker that owns it.
 func _slot_of(node: Variant) -> Node3D:
@@ -140,13 +142,20 @@ func _slot_of(node: Variant) -> Node3D:
 		n = n.get_parent()
 	return null
 
+## Zoom onto one slot. Refuses any slot that was not announced focusable, which is what keeps
+## the empty cells out: every slot now carries a click target, so without this filter a click on
+## a blank plate would zoom the pilot onto nothing.
 func focus_on(slot: Node3D) -> void:
 	if slot == null:
+		return
+	var idx := _focus_targets.find(slot)
+	if idx < 0:
 		return
 	var point := slot.get_node_or_null("FocusPoint") as Node3D
 	if point == null:
 		push_error("CockpitCameraRig: slot '%s' has no FocusPoint" % slot.name)
 		return
+	_focus_index = idx
 	_focused = slot
 	_tween_to_transform(point.global_transform)
 	focus_changed.emit(slot)

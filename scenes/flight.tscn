@@ -88,7 +88,11 @@ offset_right = 260.0
 offset_bottom = -116.0
 horizontal_alignment = 1
 
+; focus_mode = 0 (FOCUS_NONE) : sans ça, cliquer LAND donne le focus UI au bouton, et Godot
+; consomme ensuite TAB pour ui_focus_next AVANT que camera_rig le voie — le cycle de focus
+; cockpit mourait dès la première tentative d'atterrissage.
 [node name="LandButton" type="Button" parent="UI" unique_id=150271885]
+focus_mode = 0
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
@@ -108,5 +112,5 @@ offset_left = 24.0
 offset_top = -96.0
 offset_right = 460.0
 offset_bottom = -24.0
-text = "RIGHT-DRAG look  ·  RIGHT-CLICK focus module  ·  TAB cycle focus
-ESC leave focus  ·  LEFT-CLICK operate control"
+text = "CLICK a module to zoom in  ·  then CLICK its buttons  ·  TAB cycle modules
+ESC step back  ·  RIGHT-DRAG look around"
