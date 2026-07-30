@@ -2,6 +2,17 @@
 
 [ext_resource type="Script" uid="uid://dmoj5a6m5deev" path="res://scripts/module_spawner.gd" id="1"]
 
+; La CIBLE DE VISÉE d'un slot. Le clic droit « focus le module sous le curseur » lance un rayon
+; physique : sans corps assez gros, il ne touchait que les boutons de 4 cm du module, injouables à
+; viser depuis le siège — donc le focus ne s'ouvrait jamais et rien n'était cliquable.
+; Une plaque par SLOT plutôt que par prefab : le focus est une affaire de tableau de bord, donc
+; tout futur type de module en hérite sans rien déclarer.
+; 0.46 x 0.38 pour 0.5 x 0.42 d'écart entre slots → une gouttière de 4 cm, pour qu'un clic ne
+; puisse pas focus le voisin. Posée DERRIÈRE le module (z local -0.03) : le rayon rend le contact
+; le plus proche, donc viser un bouton donne toujours le bouton, et viser ailleurs donne le slot.
+[sub_resource type="BoxShape3D" id="BoxShape3D_slot_aim"]
+size = Vector3(0.46, 0.38, 0.02)
+
 [node name="Dashboard" type="Node3D" unique_id=474800128]
 script = ExtResource("1")
 

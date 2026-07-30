@@ -3,11 +3,14 @@ extends RefCounted
 
 ## THE MODULE REGISTRY — the one place that knows every module type exists.
 ##
-## A round names module ids and nothing else; the registry resolves an id to its full
+## A round names module TYPES and nothing else; the registry resolves a type to its full
 ## definition. Adding a module type = add a file under data/modules/ and one line in defs().
 ## Nothing else in the game changes.
 ##
-## build_manual_data() is the bridge to the brain: it turns a round's module list into
+## Le registry ne connaît que les TYPES. Les exemplaires (ModuleInstance) sont l'affaire du round :
+## seule build_manual_data() en voit, et seulement pour clé sa sortie par exemplaire.
+##
+## build_manual_data() is the bridge to the brain: it turns a round's instance list into
 ## exactly the { "facts": [...], "modules": {...} } shape CockpitBrain.load_manual_json
 ## already eats, with the fact set narrowed to the union of what those modules read.
 
@@ -43,35 +46,50 @@ static func has(id: String) -> bool:
 static func def(id: String) -> Dictionary:
 	return defs().get(id, {})
 
-## Assemble the manual payload for one mission: the union of the facts its modules read
-## (in first-seen order, deduplicated) plus each module's decision list, keyed by module id.
-## Module id == control id for state_match modules, which is what the brain expects today.
-static func build_manual_data(module_ids: Array) -> Dictionary:
+## Assemble the DERIVE payload for one round, from its module INSTANCES.
+##
+## Deux clés, deux natures, et c'est tout le sujet du découpage instance/type :
+##   - "facts" est dédupliqué par TYPE : un fact est une plaque physique du cockpit, deux
+##     exemplaires d'un type lisent la MÊME plaque. En tirer deux en accrocherait deux.
+##   - "modules" est clé par ID D'INSTANCE, parce que la clé est lue par le brain comme un id de
+##     CONTROL (manual_engine.gd:96 « unknown control ») et qu'un control appartient à un
+##     exemplaire. Deux exemplaires d'un type à états donnent donc DEUX entrées portant les MÊMES
+##     règles : une seule page de manuel (générique, par type), deux dérivations (une par
+##     exemplaire). C'est exactement le Modèle B ; clé par type, l'une écraserait l'autre et le
+##     brain rejetterait la clé comme control inconnu.
+##
+## Ce n'est PAS le livre de la tour : le livre rend TOUS les types enregistrés, toujours, et se
+## rend ailleurs (CLAUDE.md, « The manual is a BOOK »). Ici on ne sert que la dérivation.
+static func build_manual_data(instances: Array) -> Dictionary:
 	var facts: Array = []
-	var seen: Dictionary = {}
+	var seen_fact: Dictionary = {}
+	var seen_type: Dictionary = {}
 	var modules: Dictionary = {}
 	var all := defs()
-	for id in module_ids:
-		if not all.has(id):
-			push_error("ModuleRegistry: mission names unknown module '%s'" % id)
+	for inst in instances:
+		if not all.has(inst.type):
+			push_error("ModuleRegistry: instance '%s' names unknown module type '%s'" % [inst.id, inst.type])
 			continue
-		var d: Dictionary = all[id]
-		for fact_id in d.get("facts", []):
-			if seen.has(fact_id):
-				continue
-			seen[fact_id] = true
-			var fact_def := CockpitFacts.def(fact_id)
-			if fact_def.is_empty():
-				push_error("ModuleRegistry: module '%s' reads unknown fact '%s'" % [id, fact_id])
-				continue
-			facts.append(fact_def)
+		var d: Dictionary = all[inst.type]
+		if not seen_type.has(inst.type):
+			seen_type[inst.type] = true
+			for fact_id in d.get("facts", []):
+				if seen_fact.has(fact_id):
+					continue
+				seen_fact[fact_id] = true
+				var fact_def := CockpitFacts.def(fact_id)
+				if fact_def.is_empty():
+					push_error("ModuleRegistry: module '%s' reads unknown fact '%s'" % [inst.type, fact_id])
+					continue
+				facts.append(fact_def)
 		## Un module à molettes n'a pas de liste de décision, et ses controls ne portent pas
 		## l'id du module (voir wheel_control_id) : le mettre dans la charge du manuel ferait
 		## rejeter un « unknown control » à chaque round (manual_engine.gd:97). Sa page du
-		## livre est de la prose + le pool imprimé, pas un if/else.
+		## livre est de la prose + le pool imprimé, pas un if/else. Sa réponse est posée par
+		## flight._apply_module_answers, depuis son edgework.
 		## Ses FACTS, eux, restent tirés au-dessus — une plaque du cockpit reste une plaque.
 		if d.get("kind", KIND_STATES) != KIND_WHEELS:
-			modules[id] = d.get("rules", [])
+			modules[inst.id] = d.get("rules", [])
 	return { "facts": facts, "modules": modules }
 
 ## Static sanity pass over every registered module: catches a typo'd fact, an unknown
@@ -203,23 +221,27 @@ static func _validate_fact_id_convention() -> Array:
 
 ## Un module à molettes enregistre UN control par molette. Seul endroit où cet id s'écrit —
 ## la vue, le brain et le panneau debug passent tous par ici.
+##
+## `module_id` = l'id d'INSTANCE (« airport_code_1/w0 ») : c'est ce préfixe qui rend les controls
+## de deux exemplaires distincts, là où un préfixe de type les ferait collisionner.
 static func wheel_control_id(module_id: String, wheel: int) -> String:
 	return "%s/w%d" % [module_id, wheel]
 
 ## Roule l'edgework d'UNE instance. C'est le point de rencontre entre le CONTENU (le pool
 ## d'aéroports, qui vit dans data/facts.gd) et l'ALGORITHME (qui vit dans le module) : le
-## module ignore les facts, le registry ignore l'algorithme. Dictionnaire vide = ce module
+## module ignore les facts, le registry ignore l'algorithme. Dictionnaire vide = ce type
 ## n'a pas d'edgework.
 ##
-## `module_id` est aujourd'hui aussi l'id de TYPE. Quand mission_gen introduira les suffixes
-## d'instance (airport_code_1), c'est le type qu'il faudra passer ici.
-static func roll_edgework(module_id: String, rng: RandomNumberGenerator) -> Dictionary:
-	var d := def(module_id)
+## On prend un id de TYPE, pas d'instance : la stratégie est déclarée par la fiche, elle est la
+## même pour tous les exemplaires. Ce qui les distingue est le `rng`, qui avance à chaque appel —
+## d'où deux plateaux différents pour deux exemplaires du même type (flight.gd:_build_dashboard).
+static func roll_edgework(module_type: String, rng: RandomNumberGenerator) -> Dictionary:
+	var d := def(module_type)
 	match str(d.get("edgework_gen", "")):
 		"":
 			return {}
 		GEN_AIRPORT_WHEELS:
 			return ModuleAirportCode.generate(CockpitFacts.airport_codes(), rng)
 		var unknown:
-			push_error("ModuleRegistry: module '%s' names unknown edgework_gen '%s'" % [module_id, str(unknown)])
+			push_error("ModuleRegistry: module '%s' names unknown edgework_gen '%s'" % [module_type, str(unknown)])
 			return {}

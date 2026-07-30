@@ -3,62 +3,72 @@
 État du travail non terminé. Les **décisions** vivent dans `CLAUDE.md` ; ce fichier ne garde que
 « où on s'est arrêté ». À vider quand le chantier est fini.
 
-Dernière mise à jour : session du 30/07/2026 (2ᵉ).
+Dernière mise à jour : session du 30/07/2026 (3ᵉ).
 
-**Reprendre ici :** chantier #1 (instance/type) EN COURS — section juste en dessous.
+**Reprendre ici :** rien de commencé. Le chantier #1 est FINI et testé vert. Prochain morceau au
+choix : un **nouveau TYPE de module**, ou `data/mission_gen.gd`, ou le livre du manuel.
 
 ---
 
-## Chantier : #1 séparer id d'instance / id de type — EN COURS
+## Chantier : #1 séparer id d'instance / id de type — FAIT (testé vert)
 
-**Le bug qu'on répare :** aujourd'hui tout est clé par `module_id`, qui **== l'id de type**. Deux
-instances du même type (ex. `airport_code`) → même clé → l'une écrase l'autre en silence
-(`dashboard.gd` placements, `flight.gd:36` `_modules`, `control_store.gd:17` refuse l'id dupliqué).
-C'est le prérequis du paramètre « nombre de modules » de mission_gen. Analogie React : on utilisait
-`key={type}` au lieu de `key={id}`.
+**Le bug réparé :** tout était clé par `module_id`, qui **== l'id de type**. Deux instances du même
+type → même clé → l'une écrasait l'autre en silence. Analogie React : `key={type}` au lieu de
+`key={id}`. C'était le prérequis du paramètre « nombre de modules » de mission_gen.
 
-**La règle :** clé = **`inst.id`** (unique, `airport_code_1`) PARTOUT ; le **`inst.type`** ne sert
-qu'à `def()`, `roll_edgework()`, le 2ᵉ arg de `register_module()`, et `build_manual_data()`.
-`id` déterministe (`type_index`), **jamais random** — sinon la seed ne reproduit plus le vol.
+**La règle, désormais tenue partout :** clé = **`inst.id`** (`airport_code_1`) ; **`inst.type`** ne
+sert qu'à 4 choses — `def()`, `roll_edgework()`, le 2ᵉ arg de `register_module()`, et le choix
+`kind` dans `_build_dashboard`. `id` déterministe (`<type>_<n>`), **jamais random** — sinon la seed
+ne reproduit plus le vol (le placement trie par id, et l'ordre du flux rng en dépend).
 
-### Fait
-- **`data/module_instance.gd`** (nouveau) : `class_name ModuleInstance`, `{ id: String, type: String }`,
-  constructeur `_init(id, type)`. (Indentation encore en espaces — cohérent donc compile, à repasser
-  en tabs plus tard.)
+### Ce que ça a changé, fichier par fichier
+- **`data/module_instance.gd`** : `{id, type}`, `_init(p_id, p_type)`, plus un `_to_string()` pour
+  que le print de round montre `airport_code_1(airport_code)` et pas une liste de RefCounted.
+  Indentation repassée en tabs.
 - **`data/mission.gd`** : `modules` : `Array[String]` → `Array[ModuleInstance]`.
-- **`flight.gd:_resolve_mission`** : `[ModuleInstance.new("airport_code_1", ModuleAirportCode.ID)]`.
-- **`data/dashboard.gd:place()`** : prend `Array[ModuleInstance]`, footprint/zones par `inst.type`,
-  clés par `inst.id`, tri déterministe par `inst.id`.
+- **`data/dashboard.gd:place()`** : prend `Array[ModuleInstance]`, zones par `inst.type`, clés et
+  tri par `inst.id`.
+- **`scripts/module_spawner.gd:spawn()`** : prend les instances, itère la **liste** (pas le dict de
+  placements) pour garder l'ordre de mission et signaler une instance sans slot ; `def(inst.type)` ;
+  `_controls[inst.id]` ; `_apply_contract(node, inst.id, def)` → le control d'un module à état
+  unique porte l'id d'EXEMPLAIRE.
+- **`scripts/flight.gd:_build_dashboard()`** : itère `_mission.modules`, saute ce que le spawner n'a
+  pas posé, `register_module(inst.id, inst.type)`, `def(inst.type)`.
+- **`scripts/flight.gd:_register_wheels_module(id, type, node, rng)`** : seul endroit qui a besoin
+  des DEUX ids — `type` choisit l'algorithme, `id` clé le résultat.
+- **`ModuleRegistry.roll_edgework(module_type, …)`** : prend un id de TYPE. Ce qui distingue deux
+  exemplaires est le `rng`, qui avance à chaque appel.
+- **`ModuleRegistry.build_manual_data(instances)`** : **deux natures dans la même sortie** —
+  `"facts"` dédupliqué par TYPE (un fact est une plaque physique, deux exemplaires lisent la même),
+  `"modules"` clé par **id d'INSTANCE** parce que le brain lit cette clé comme un id de CONTROL
+  (`manual_engine.gd:96` « unknown control »). Deux exemplaires d'un type à états = deux entrées
+  aux MÊMES règles : une page de manuel générique, deux dérivations. C'est le Modèle B.
+  ⚠️ La note de la session précédente disait « dédupliquer vers l'ensemble des types » : ça vaut
+  pour le LIVRE de la tour (`manual_text()`, chantier séparé), pas pour cette charge-ci.
 
 ### Sous-chantier fait dans la foulée : footprint SUPPRIMÉ
-Décision : tous les modules font 1×1 (le modèle 3D sera mis à l'échelle, pas la grille). Retiré :
-`_footprint()`, `_fits()`, tri par taille, `covers`, champ `footprint` du placement + du `def`,
-check footprint de `validate()`. `place()` rend `{zone,row,col,slot_id}`. Gardé : `_allowed_zones`
-+ les `zones` (overhead/main). **Effet de bord : le bug de centrage `spawner.gd:104` (ancien #11)
-est sans objet.**
+Tous les modules font 1×1 (le modèle 3D sera mis à l'échelle, pas la grille). Retiré : `_footprint()`,
+`_fits()`, tri par taille, `covers`, champ `footprint` du placement + du `def`, check footprint de
+`validate()`. **Effet de bord : le bug de centrage `spawner.gd:104` (ancien #11) est sans objet.**
 
-### Dominos RESTANTS (le cœur de #1, pas encore fait)
-1. **`spawner.spawn()`** : itérer les instances, `def(inst.type)`, `_controls[inst.id]`,
-   `_apply_contract(node, inst.id, def)`. Gérer une instance non placée (placement absent).
-2. **`flight._build_dashboard`** (`flight.gd:108-119`) : itérer `_mission.modules` (pas `_modules`),
-   `register_module(inst.id, inst.type)`, `def(inst.type)`, passer id+type aux fonctions de register.
-3. **`flight._register_wheels_module`** : ajouter un param `type`, `roll_edgework(inst.type)` ;
-   tout le reste (`wheel_control_id`, `register_control`, `set_module_controls`, `bind_wheels`,
-   `_control_module`) reste en `inst.id`.
-4. **`ModuleRegistry.build_manual_data`** : reçoit maintenant des instances → doit dédupliquer vers
-   l'**ensemble des types** (le manuel = 1 page par type, pas par instance).
-   - `_register_control_module` : PAS de changement (appelé avec `inst.id`, pas besoin du type).
-   - `_apply_module_answers`, `_debug_text`, `_debrief_rows` : déjà OK (itèrent par instance id).
-
-### Filet de sécurité (à faire avant de dire « fini »)
-Étendre `CockpitBrain.self_test()` (`scripts/tests/brain_test.gd`) avec un round à **2 instances du
-même type** → au prochain lancement, run le test, vert = le split tient. **Rien n'est lançable/testé
-cette session** (pas d'éditeur).
+### Filet de sécurité — EN PLACE ET VERT
+`godot --headless --path . --script res://scripts/tests/brain_test.gd` → exit 0. Deux tests neufs :
+- **`CockpitBrain.self_test()`, bloc « two instances of one type »** : deux exemplaires du même type,
+  et rien n'est partagé — ni edgework, ni controls, ni labels d'état, ni statut, ni état requis. L'un
+  résolu et marqué CORRECT ne verrouille pas l'autre.
+- **`brain_test.gd:_test_instances()`** : le chemin data réel — `place()` pose bien DEUX slots
+  distincts (le bug d'écrasement), le placement est reproductible à seed égale, `roll_edgework()`
+  rend deux plateaux différents, et la charge de dérivation dédup les facts sans dédupliquer les
+  exemplaires.
+- Lancer ce test AVANT de dire qu'un chantier tient. Il tourne avec l'éditeur ouvert (process
+  séparé). Il n'imprime rien avant la fin : une erreur de parse le fait **boucler sans quitter** —
+  s'il ne rend pas la main, lire le fichier de sortie, il y a un « Parse Error » dedans.
 
 ### Git
-- Seam commité (`34b5d1b`). Le travail #1 ci-dessus est **non commité** dans le working tree.
-- Le #2 (FocusPoint) est dans `stash@{0}` (« validate module spawner »). `pop` APRÈS #1 : propre,
-  il ne touche que `validate_scene`, que #1 ne touche pas.
+- **`stash@{0}` a disparu.** La note de la session précédente y plaçait le #2 (FocusPoint,
+  « validate module spawner »). `git stash list` est vide, il n'y a plus de reflog de stash et
+  `git fsck` ne trouve aucun commit pendu : ce travail est **perdu**, à refaire si on le veut.
+- Le #1 ci-dessus est **non commité** dans le working tree.
 
 ---
 
@@ -206,23 +216,19 @@ prose + **le pool imprimé**. La charge de dérivation (`build_manual_data`) res
 Spec dans `CLAUDE.md`, « Round = parameters + a seed ». Rien écrit.
 
 1. `generate(seed, params) -> Mission` ; pioche des **instances** (doublons autorisés,
-   `max_instances` respecté)
-2. remplacer `flight.gd:74` `_resolve_mission()`, aujourd'hui codé en dur
+   `max_instances` respecté). Le socle est prêt : `ModuleInstance` existe, tout est clé par
+   exemplaire, et le test le prouve. Il ne reste que la pioche et la numérotation `<type>_<n>`.
+2. remplacer `flight.gd:84` `_resolve_mission()`, aujourd'hui codé en dur (une seule instance)
 3. ajouter le seuil d'apparition (`difficulty`) dans la fiche d'`airport_code`
-4. quand les suffixes d'instance arrivent (`airport_code_1`), `ModuleRegistry.roll_edgework()`
-   devra recevoir l'id de **TYPE**, pas l'id d'instance (commentaire déjà posé dans la fonction)
 
 ---
 
 ## Autres restes connus
 
-- **`module_spawner.gd:104`** : un module multi-cellules est ancré sur le marqueur de sa
-  **première** cellule, donc un `footprint [2,1]` déborde de 0,25 vers la droite. Le centrage est
-  un chantier du spawner.
 - **Panneau debug** : il vit dans `UI/Status`. Le sortir dans son propre panneau, toujours caché
   par défaut, quand le HUD sera repris.
-- **`scripts/tests/brain_test.gd`** : `CockpitBrain.self_test()` ne couvre pas encore l'edgework,
-  `module_matches_required`, ni le chemin go-around.
+- **`scripts/tests/brain_test.gd`** : couvre maintenant l'edgework, `module_matches_required` et
+  les exemplaires multiples. Pas encore le chemin **go-around** (`_attempt_land`, `lives`).
 - Assets de test à supprimer : `res://test_sphere.tscn`, `res://sphere_mesh.tres`.
 
 ---

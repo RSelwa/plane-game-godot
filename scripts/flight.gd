@@ -105,15 +105,19 @@ func _build_dashboard() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = _seed
 	var focus_slots: Array = []
-	for module_id in _modules:
-		var node: Node3D = _modules[module_id]
-		## 2e argument = l'id de TYPE. Identique à l'id d'instance jusqu'à mission_gen.
-		_brain.register_module(module_id, module_id)
-		var d := ModuleRegistry.def(module_id)
+	## On itère les INSTANCES de la mission, pas la table de spawn : c'est là que vivent les deux
+	## ids. `inst.id` clé tout (brain, controls, verrou, lampe), `inst.type` ne sert qu'à retrouver
+	## la fiche et à tirer l'edgework. Ordre = ordre de la mission, donc déterministe.
+	for inst in _mission.modules:
+		if not _modules.has(inst.id):
+			continue  ## non placé / prefab manquant — le spawner a déjà crié
+		var node: Node3D = _modules[inst.id]
+		_brain.register_module(inst.id, inst.type)
+		var d := ModuleRegistry.def(inst.type)
 		if d.get("kind", ModuleRegistry.KIND_STATES) == ModuleRegistry.KIND_WHEELS:
-			_register_wheels_module(module_id, node, rng)
+			_register_wheels_module(inst.id, inst.type, node, rng)
 		else:
-			_register_control_module(module_id, node)
+			_register_control_module(inst.id, node)
 		var slot := node.get_parent()
 		if slot is Node3D:
 			focus_slots.append(slot)
@@ -135,7 +139,8 @@ func _on_focus_changed(slot: Node3D) -> void:
 		if node.has_method("set_interactable"):
 			node.set_interactable(node.get_parent() == slot)
 
-## Module à état unique : le prefab EST le control, son id est celui du module.
+## Module à état unique : le prefab EST le control, son id est celui de l'INSTANCE (le spawner
+## l'a poussé dessus). Aucun besoin du type ici — la fiche a déjà servi au spawn.
 func _register_control_module(module_id: String, node: Node3D) -> void:
 	var control := node as CockpitControl
 	if control == null:
@@ -151,8 +156,12 @@ func _register_control_module(module_id: String, node: Node3D) -> void:
 
 ## Module à molettes : UN control par molette, dont les ÉTATS sont les lettres tirées de la
 ## seed. C'est ici que « 1 module = N controls » se produit réellement.
-func _register_wheels_module(module_id: String, node: Node3D, rng: RandomNumberGenerator) -> void:
-	var board := ModuleRegistry.roll_edgework(module_id, rng)
+##
+## SEUL endroit qui a besoin des DEUX ids : `type` choisit l'algorithme de tirage (la fiche),
+## `module_id` clé le résultat. Deux exemplaires du même type passent donc ici avec le même
+## `type` et deux `module_id` différents — même stratégie, deux plateaux (Modèle B).
+func _register_wheels_module(module_id: String, type: String, node: Node3D, rng: RandomNumberGenerator) -> void:
+	var board := ModuleRegistry.roll_edgework(type, rng)
 	if board.is_empty():
 		push_error("FlightRound: module '%s' produced no board" % module_id)
 		return

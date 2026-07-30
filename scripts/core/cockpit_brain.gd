@@ -254,5 +254,54 @@ static func self_test() -> String:
 	log.append("module status %s" % ["OK" if status_ok else "FAIL"])
 	m.free()
 
-	var all_ok := v1 and v2 and v3 and deriv and caught and ops_ok and status_ok
+	# DEUX EXEMPLAIRES DU MÊME TYPE. Le filet du découpage instance/type : tant que tout était clé
+	# par id de TYPE, le second exemplaire écrasait le premier en silence — et un round faux
+	# ressemble exactement à un round juste. On vérifie donc que rien n'est partagé entre deux
+	# instances du même type : ni l'edgework (deux plateaux), ni les controls, ni le statut, ni
+	# l'état requis. Les ids de control sont écrits en littéral ici plutôt que via
+	# ModuleRegistry.wheel_control_id : le brain est le MOTEUR, il ne remonte pas vers la data.
+	var d2 := CockpitBrain.new()
+	for suffix: String in ["1", "2"]:
+		var mid: String = "airport_code_" + suffix
+		d2.register_module(mid, "airport_code")
+		var cids: Array = []
+		for w in 2:
+			var cid: String = "%s/w%d" % [mid, w]
+			## Lettres DIFFÉRENTES par exemplaire : même type, edgework distinct (Modèle B).
+			d2.register_control(cid, ["A", "B"] if suffix == "1" else ["C", "D"])
+			cids.append(cid)
+		d2.set_module_controls(mid, cids)
+		d2.set_module_edgework(mid, {"target": "AA" if suffix == "1" else "CC"})
+
+	var both_registered: bool = d2.module_ids() == ["airport_code_1", "airport_code_2"]
+	var same_type: bool = d2.module_type("airport_code_1") == "airport_code" \
+		and d2.module_type("airport_code_2") == "airport_code"
+	var own_controls: bool = d2.module_controls("airport_code_1") == ["airport_code_1/w0", "airport_code_1/w1"] \
+		and d2.module_controls("airport_code_2") == ["airport_code_2/w0", "airport_code_2/w1"]
+	var own_edgework: bool = d2.module_edgework("airport_code_1").get("target", "") == "AA" \
+		and d2.module_edgework("airport_code_2").get("target", "") == "CC"
+	var own_labels: bool = d2.state_label("airport_code_1/w0", 0) == "A" \
+		and d2.state_label("airport_code_2/w0", 0) == "C"
+
+	# Exemplaire 1 résolu, exemplaire 2 non : les deux réponses doivent rester indépendantes.
+	d2.set_required("airport_code_1/w0", 1)
+	d2.set_required("airport_code_1/w1", 1)
+	d2.set_required("airport_code_2/w0", 1)
+	d2.set_required("airport_code_2/w1", 1)
+	d2.set_state("airport_code_1/w0", 1)
+	d2.set_state("airport_code_1/w1", 1)
+	var one_solved: bool = d2.module_matches_required("airport_code_1") \
+		and not d2.module_matches_required("airport_code_2")
+	# Marquer l'un ne doit pas verrouiller l'autre (le verrou de flight.gd lit ce statut).
+	d2.mark_module("airport_code_1", ModuleStore.CORRECT)
+	var own_status: bool = d2.module_correct("airport_code_1") and not d2.module_correct("airport_code_2")
+	var instances_ok: bool = both_registered and same_type and own_controls and own_edgework \
+		and own_labels and one_solved and own_status
+	log.append("two instances of one type%s %s" % [
+		"" if instances_ok else " (reg=%s type=%s ctrl=%s edge=%s lbl=%s solved=%s status=%s)" % [
+			both_registered, same_type, own_controls, own_edgework, own_labels, one_solved, own_status],
+		"OK" if instances_ok else "FAIL"])
+	d2.free()
+
+	var all_ok := v1 and v2 and v3 and deriv and caught and ops_ok and status_ok and instances_ok
 	return ("SELFTEST PASS :: " if all_ok else "SELFTEST FAIL :: ") + " | ".join(log)
