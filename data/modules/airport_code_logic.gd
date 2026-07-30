@@ -32,7 +32,6 @@ static func def() -> Dictionary:
 		"id": ID,
 		"display": "AIRPORT CODE",
 		"scene": "res://scenes/modules/airport_code.tscn",
-		"footprint": [2, 1],
 		"zones": [DashboardLayout.ZONE_MAIN],
 		"kind": "wheels",
 		"check": "state_match",

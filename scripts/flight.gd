@@ -33,9 +33,9 @@ var _camera: CockpitCameraRig
 var _mission: Mission = null
 ## Un module peut porter PLUSIEURS controls (un module à molettes en a un par molette), donc
 ## deux tables au lieu d'une : ce qui a été spawné, et qui dessine quoi.
-var _modules: Dictionary = {}           # module id -> le nœud spawné (Node3D)
-var _control_owner: Dictionary = {}     # control id -> le nœud qui le DESSINE
-var _control_module: Dictionary = {}    # control id -> le module qui le PORTE (pour le verrou)
+var _modules: Dictionary = {} # module id -> le nœud spawné (Node3D)
+var _control_owner: Dictionary = {} # control id -> le nœud qui le DESSINE
+var _control_module: Dictionary = {} # control id -> le module qui le PORTE (pour le verrou)
 var _lives := 1
 var _time_left := 0.0
 var _playing := false
@@ -81,8 +81,8 @@ func _ready() -> void:
 	_refresh_all()
 
 func _resolve_mission() -> Mission:
-	var mods: Array[String] = [ModuleAirportCode.ID]
-	return Mission.new("dev_airport_code", mods, 180, 2 )
+	var mods: Array[ModuleInstance] = [ModuleInstance.new("airport_code_1", ModuleAirportCode.ID)]
+	return Mission.new("dev_airport_code", mods, 180, 2)
 
 ## Surface data problems loudly at startup rather than as a silently-wrong round.
 func _report_data_errors() -> void:
@@ -336,7 +336,7 @@ func _refresh_status() -> void:
 	for id in _control_owner:
 		rows.append("  %s: %s" % [id, _brain.state_label(id, _brain.get_state(id))])
 	lbl.text = "SEED: %d\n\nFLIGHT (read to tower):\n" % _seed + "\n".join(facts) \
-		+ "\n\nCOCKPIT:\n" + "\n".join(rows) + _debug_text()
+		+"\n\nCOCKPIT:\n" + "\n".join(rows) + _debug_text()
 
 ## Le plateau et la réponse de chaque module généré. Caché derrière F3 : c'est la solution.
 ## Tout vient du brain — le spawner et les vues ne sont jamais interrogés.
