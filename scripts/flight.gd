@@ -122,7 +122,18 @@ func _build_dashboard() -> void:
 	if not _brain.is_connected("module_status_changed", _on_module_status_changed):
 		_brain.connect("module_status_changed", _on_module_status_changed)
 	if _camera != null:
+		if not _camera.focus_changed.is_connected(_on_focus_changed):
+			_camera.focus_changed.connect(_on_focus_changed)
 		_camera.set_focus_targets(focus_slots)
+		_on_focus_changed(null)
+
+## Only the module the camera is focused on may be operated; overview clicks just pick a
+## module to zoom. Passing null (overview / unfocus) makes every module inert.
+func _on_focus_changed(slot: Node3D) -> void:
+	for module_id in _modules:
+		var node: Node3D = _modules[module_id]
+		if node.has_method("set_interactable"):
+			node.set_interactable(node.get_parent() == slot)
 
 ## Module à état unique : le prefab EST le control, son id est celui du module.
 func _register_control_module(module_id: String, node: Node3D) -> void:

@@ -29,6 +29,13 @@ var _control_ids: Array = []
 var _wheels: Array = []
 var _index_of: Dictionary = {}          # control id -> index de molette
 var _buttons_connected := false
+## Les boutons ne répondent QUE quand la caméra est focus sur ce module : en overview un clic
+## ne fait que choisir le module à zoomer. Le round pose ce drapeau depuis focus_changed —
+## l'autorité sur « quel module est actif » reste à un seul endroit.
+var _interactable := false
+
+func set_interactable(value: bool) -> void:
+	_interactable = value
 
 ## Appelée par FlightRound juste après le tirage du plateau. `wheels[i]` = les lettres de la
 ## molette i, dans l'ordre où ses états sont indexés côté brain : l'état 2 du control, c'est
@@ -101,15 +108,15 @@ func _connect_button(path: String, wheel: int, step: int) -> void:
 
 func _on_button_input(_camera: Node, event: InputEvent, _pos: Vector3, _normal: Vector3,
 		_shape: int, wheel: int, step: int) -> void:
-	if not _is_left_click(event):
+	if not _interactable or not _is_interact(event):
 		return
 	if wheel < _control_ids.size():
 		cycle_requested.emit(_control_ids[wheel], step)
 
 func _on_submit_input(_camera: Node, event: InputEvent, _pos: Vector3, _normal: Vector3,
 		_shape: int) -> void:
-	if _is_left_click(event):
+	if _interactable and _is_interact(event):
 		submit_requested.emit(_module_id)
 
-func _is_left_click(event: InputEvent) -> bool:
-	return event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT
+func _is_interact(event: InputEvent) -> bool:
+	return event.is_action_pressed("interact")

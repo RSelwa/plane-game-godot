@@ -9,10 +9,14 @@ class_name CockpitCameraRig
 ## move in 3D, never a UI modal: the neighbours stay on screen and the HUD stays up, because
 ## losing peripheral awareness would kill the panic.
 ##
-## Controls: hold RIGHT mouse to look · RIGHT click (no drag) focuses the module under the
-## cursor · LEFT click interacts (the control handles that itself) · TAB cycles focus ·
-## ESC leaves focus. Exiting focus restores the look direction the pilot had, never a reset
-## pose, and TAB swings the head too so keyboard and mouse never disagree.
+## Every binding goes through an InputMap ACTION, never a raw key or button: adding a gamepad
+## (or letting the player rebind) is then a bind in project.godot, not a change here.
+##   camera_look (RMB, hold)  = free-look; a click with no drag focuses the module under the cursor
+##   cam_look_* (right stick)  = free-look on a pad
+##   focus_next / focus_prev   = cycle focus (TAB / bumpers) -- swings the head too
+##   back (ESC / B)            = leave focus
+##   interact (LMB / A)        = operate a control -- consumed by the control, not here
+## Exiting focus restores the look direction the pilot had, never a reset pose.
 
 signal focus_changed(slot: Node3D)
 
@@ -21,6 +25,8 @@ signal focus_changed(slot: Node3D)
 @export var pitch_max_deg: float = 35.0
 @export var yaw_limit_deg: float = 35.0
 @export var look_sensitivity: float = 0.18
+## Right-stick look speed, in degrees per second at full deflection.
+@export var stick_sensitivity: float = 140.0
 @export var focus_time: float = 0.3
 ## A right-press that travels further than this many pixels counts as a look-drag, not a click.
 @export var click_slop_px: float = 6.0
@@ -63,15 +69,14 @@ func is_focused() -> bool:
 # ── Input ────────────────────────────────────────────────────────────────────────────
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton:
-		if event.button_index == MOUSE_BUTTON_RIGHT:
-			if event.pressed:
-				_looking = true
-				_drag_px = 0.0
-			else:
-				_looking = false
-				if _drag_px <= click_slop_px:
-					_focus_under_cursor(event.position)
+	if event.is_action_pressed("camera_look"):
+		_looking = true
+		_drag_px = 0.0
+		return
+	if event.is_action_released("camera_look"):
+		_looking = false
+		if _drag_px <= click_slop_px and event is InputEventMouseButton:
+			_focus_under_cursor((event as InputEventMouseButton).position)
 		return
 
 	if event is InputEventMouseMotion and _looking and not is_focused():
@@ -85,19 +90,32 @@ func _unhandled_input(event: InputEvent) -> void:
 		_drag_px += event.relative.length()
 		return
 
-	if event is InputEventKey and event.pressed and not event.echo:
-		match event.keycode:
-			KEY_TAB:
-				_cycle_focus()
-			KEY_ESCAPE:
-				unfocus()
+	if event.is_action_pressed("focus_next"):
+		_cycle_focus(1)
+	elif event.is_action_pressed("focus_prev"):
+		_cycle_focus(-1)
+	elif event.is_action_pressed("back"):
+		unfocus()
+
+## Right-stick free-look: analog, so it lives in _process rather than reacting to one event.
+## Same clamps and same disable-while-focused rule as the mouse.
+func _process(delta: float) -> void:
+	if is_focused():
+		return
+	var look := Input.get_vector("cam_look_left", "cam_look_right", "cam_look_up", "cam_look_down")
+	if look == Vector2.ZERO:
+		return
+	_yaw = clampf(_yaw - look.x * stick_sensitivity * delta, -yaw_limit_deg, yaw_limit_deg)
+	_pitch = clampf(_pitch - look.y * stick_sensitivity * delta, pitch_min_deg, pitch_max_deg)
+	_apply_overview()
 
 # ── Focus ────────────────────────────────────────────────────────────────────────────
 
-func _cycle_focus() -> void:
+func _cycle_focus(dir: int) -> void:
 	if _focus_targets.is_empty():
 		return
-	_focus_index = (_focus_index + 1) % _focus_targets.size()
+	var n := _focus_targets.size()
+	_focus_index = ((_focus_index + dir) % n + n) % n
 	focus_on(_focus_targets[_focus_index])
 
 func _focus_under_cursor(screen_pos: Vector2) -> void:

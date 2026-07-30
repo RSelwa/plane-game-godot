@@ -23,11 +23,21 @@ signal cycle_requested(id: String, step: int)
 @export var min_angle_deg: float = -35.0
 @export var max_angle_deg: float = 35.0
 
+## A control only takes input once the camera is FOCUSED on its module: in overview a click
+## just picks a module to zoom into, it never operates it. The round sets this from the
+## camera's focus_changed, so the authority over "which module is live" stays in one place.
+var _interactable := false
+
+func set_interactable(value: bool) -> void:
+	_interactable = value
+
 func _ready() -> void:
 	input_event.connect(_on_input_event)
 
 func _on_input_event(_camera: Node, event: InputEvent, _pos: Vector3, _normal: Vector3, _shape: int) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+	if not _interactable:
+		return
+	if event.is_action_pressed("interact"):
 		cycle_requested.emit(control_id, 1)
 
 ## Draw the given canonical state. Called by the manager after the brain updates.

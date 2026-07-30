@@ -3,9 +3,47 @@
 État du travail non terminé. Les **décisions** vivent dans `CLAUDE.md` ; ce fichier ne garde que
 « où on s'est arrêté ». À vider quand le chantier est fini.
 
-Dernière mise à jour : session du 29/07/2026 (2ᵉ session de la journée).
+Dernière mise à jour : session du 30/07/2026.
 
-**Cette session :** le module `airport_code` **fonctionne de bout en bout**. Plateau tiré de la
+---
+
+## Chantier : seam entrées (clavier/souris/manette) + résolution — FAIT
+
+But : que brancher une manette plus tard soit **un bind dans `project.godot`, pas une réécriture**.
+Toutes les entrées passent maintenant par des **actions InputMap**, plus une seule touche en dur.
+
+- **`project.godot [input]`** : 9 actions. `interact` (clic gauche / A), `camera_look` (clic droit),
+  `focus_next` (Tab / RB), `focus_prev` (LB), `back` (Échap / B), `cam_look_left/right/up/down`
+  (stick droit, axes 2/3). Éditables dans l'UI Input Map de l'éditeur.
+- **`camera_rig.gd`** : `_unhandled_input` ne lit plus `KEY_TAB`/`KEY_ESCAPE`/`MOUSE_BUTTON_RIGHT`
+  mais `event.is_action_pressed(...)`. `_cycle_focus(dir)` prend un sens (Tab avance, LB recule).
+  Nouveau `_process` : free-look au stick droit via `Input.get_vector`, mêmes clamps que la souris,
+  coupé quand on est focus. Nouvel export `stick_sensitivity` (deg/s).
+- **Verrou d'interaction sur le focus** : un control ne répond au clic **que si la caméra est
+  zoomée sur son module**. En overview un clic ne fait que **choisir** un module à zoomer. Drapeau
+  `_interactable` sur `cockpit_control.gd` + `airport_code_view.gd` (`set_interactable`), piloté par
+  `flight.gd._on_focus_changed` branché sur `camera_rig.focus_changed`. Au démarrage tout est inerte
+  (`_on_focus_changed(null)`). **Nouveau flux de jeu : clic droit sur un module → zoom → clic gauche
+  sur ses boutons.**
+- **Résolution adaptative** : `window/stretch/mode` passé de `canvas_items` (rendu 2D fixe, la 3D
+  était étirée → « même résolution » en redimensionnant) à **`disabled`** (la 3D rend à la
+  résolution native de la fenêtre, la caméra ajuste son aspect). Taille de base 1280×720. Le HUD est
+  déjà ancré (CanvasLayer `UI` + `Center` du menu), donc rien à réancrer.
+
+**Différé (features, pas des seams — l'archi les supporte déjà, zéro dette) :**
+- Nav **directionnelle** manette (D-pad gauche/droite/haut/bas entre modules). Les slots ont
+  `<zone>_r<row>_c<col>`, donc les voisins spatiaux sont calculables. Aujourd'hui : cycle next/prev.
+- **A qui valide un bouton précis** quand on est zoomé : demande un curseur/sélecteur par module
+  (une molette parmi trois). `interact` est défini et prêt, mais camera_rig ne le consomme pas.
+- **Tuning stick** (deadzone fine, courbe) + écran de rebind : prématuré tant que la boucle n'est
+  pas prouvée fun.
+
+**Non testé par Claude** (GDScript runtime = playtest, cf. méthode de travail) : brancher une
+manette, vérifier le stick, le cycle bumpers, le verrou focus, et le redimensionnement de fenêtre.
+
+---
+
+**Session précédente (29/07) :** le module `airport_code` **fonctionne de bout en bout**. Plateau tiré de la
 seed → 3 molettes cliquables → Submit jugé par le brain → lampe éteinte / rouge / verte →
 verrou. Le projet est redevenu runnable. Le chantier « module AIRPORT CODE » est donc
 essentiellement **fini** ; ce qui reste est du contenu et le manuel de la tour.
